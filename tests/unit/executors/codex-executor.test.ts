@@ -37,6 +37,7 @@ interface FakeBehavior {
   exitCode?: number;
   processError?: boolean;
   autoComplete?: boolean;
+  keepAliveUntilKilled?: boolean;
   modelList?: unknown;
   threadModel?: string;
 }
@@ -53,6 +54,13 @@ function fakeStarter(behavior: FakeBehavior, invocations: Invocation[]): Process
     const child = new EventEmitter();
     const stdout = new PassThrough();
     const stderr = new PassThrough();
+    let keepAlive: NodeJS.Timeout | undefined;
+    if (behavior.keepAliveUntilKilled) keepAlive = setInterval(() => undefined, 1_000);
+    const stopKeepAlive = (): void => {
+      if (keepAlive === undefined) return;
+      clearInterval(keepAlive);
+      keepAlive = undefined;
+    };
     const invocation: Invocation = {
       executable, args: [...args], options, stdin: "",
       send(message) { stdout.write(`${JSON.stringify(message)}\n`); }
@@ -89,6 +97,7 @@ function fakeStarter(behavior: FakeBehavior, invocations: Invocation[]): Process
     });
     invocations.push(invocation);
     Object.assign(child, { stdin, stdout, stderr, killed: false, kill() {
+      stopKeepAlive();
       this.killed = true;
       invocation.killed = true;
       return true;
@@ -96,6 +105,7 @@ function fakeStarter(behavior: FakeBehavior, invocations: Invocation[]): Process
 
     queueMicrotask(() => {
       if (behavior.appServerOutput !== undefined) return;
+      stopKeepAlive();
       if (behavior.processError === true) {
         child.emit("error", new Error("secret process error"));
         return;
@@ -236,7 +246,7 @@ test("a bounded Codex execution times out, kills its child, and returns a struct
   const invocations: Invocation[] = [];
   const executor = new CodexExecutor(
     TRUSTED_CWD,
-    fakeStarter({ appServerOutput: "", autoComplete: false }, invocations),
+    fakeStarter({ appServerOutput: "", autoComplete: false, keepAliveUntilKilled: true }, invocations),
     {}
   );
 

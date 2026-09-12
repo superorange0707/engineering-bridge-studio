@@ -189,27 +189,35 @@ test("bounds a hung interrupt hook and preserves artifacts from a late executor 
   assert.equal(executorStarted, true);
 
   const began = Date.now();
-  const pending = await Promise.all([
-    service.interrupt(started.run_id),
-    service.interrupt(started.run_id)
-  ]);
-  assert.ok(Date.now() - began < COLLABORATION_INTERRUPT_WAIT_MS + 3_000);
-  assert.equal(interruptCalls, 1);
-  assert.equal(pending[0]?.state, "interrupting");
-  assert.equal(pending[1]?.state, "interrupting");
-  assert.equal(pending[0]?.ready, false);
-  assert.equal(JSON.parse(readFileSync(join(state, "runs", started.run_id, "manifest.json"), "utf8")).state,
-    "interrupting");
+  // The production interrupt deadline is intentionally unref'ed so an idle
+  // daemon can exit. Keep this fake hung operation alive like a real child
+  // process while the deadline is being exercised.
+  const keepAlive = setInterval(() => undefined, 1_000);
+  try {
+    const pending = await Promise.all([
+      service.interrupt(started.run_id),
+      service.interrupt(started.run_id)
+    ]);
+    assert.ok(Date.now() - began < COLLABORATION_INTERRUPT_WAIT_MS + 3_000);
+    assert.equal(interruptCalls, 1);
+    assert.equal(pending[0]?.state, "interrupting");
+    assert.equal(pending[1]?.state, "interrupting");
+    assert.equal(pending[0]?.ready, false);
+    assert.equal(JSON.parse(readFileSync(join(state, "runs", started.run_id, "manifest.json"), "utf8")).state,
+      "interrupting");
 
-  releaseExecution();
-  const finished = await waitFor(service, started.run_id, ["interrupted"]);
-  assert.equal(finished?.partial_output, "late report");
-  assert.equal(finished?.artifacts[0]?.path, "result.json");
-  assert.equal((await service.readArtifact(started.run_id, "result.json")).content, "partial\n");
+    releaseExecution();
+    const finished = await waitFor(service, started.run_id, ["interrupted"]);
+    assert.equal(finished?.partial_output, "late report");
+    assert.equal(finished?.artifacts[0]?.path, "result.json");
+    assert.equal((await service.readArtifact(started.run_id, "result.json")).content, "partial\n");
 
-  const repeated = await service.interrupt(started.run_id);
-  assert.equal(repeated.state, "interrupted");
-  assert.equal(interruptCalls, 1);
+    const repeated = await service.interrupt(started.run_id);
+    assert.equal(repeated.state, "interrupted");
+    assert.equal(interruptCalls, 1);
+  } finally {
+    clearInterval(keepAlive);
+  }
 });
 
 test("recovers persisted interrupting intent without replay and keeps interrupt idempotent", async () => {

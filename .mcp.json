@@ -9,7 +9,8 @@
       "env_vars": [
         "ENGINEERING_BRIDGE_CONFIG",
         "CODEX_HOME",
-        "ENGINEERING_BRIDGE_EXECUTOR_CHILD"
+        "ENGINEERING_BRIDGE_EXECUTOR_CHILD",
+        "CODEX_ROUTED_TASK_READ_ONLY"
       ]
     }
   }
