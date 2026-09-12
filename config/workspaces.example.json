@@ -1,11 +1,24 @@
-[
-  {
-    "id": "example-project",
-    "root": "/absolute/path/to/project",
-    "allow_write": false
+{
+  "version": 3,
+  "collaboration": {
+    "execution_workspace_ids": []
   },
-  {
-    "kind": "project_root",
-    "root": "/absolute/path/to/projects"
-  }
-]
+  "codex_projects": {
+    "source_file": "/absolute/path/to/.codex/config.toml",
+    "auto_onboard": false,
+    "permission_policy": {
+      "allow_write": false
+    }
+  },
+  "excluded_workspace_ids": [],
+  "managed_roots": [
+    {
+      "root": "/absolute/path/to/projects",
+      "auto_onboard": true,
+      "permission_policy": {
+        "allow_write": false
+      }
+    }
+  ],
+  "workspaces": []
+}

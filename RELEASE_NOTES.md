@@ -1,3 +1,19 @@
+# Engineering Bridge Studio 2.0.0-beta.1
+
+First independent macOS distribution combining the Bridge collaboration workflow with a pinned codex-chatgpt-web v5.0.6 Launcher installer.
+
+- Shared local owner and independent client sessions for Codex and authenticated Web MCP entry points.
+- Engineering/research contracts, isolated native Codex execution, declared artifact hashes, paged artifact reads and durable reviews.
+- Explicit per-project initialization, existing-stack connection, local diagnostics and child delegation prevention.
+- Fixed version/digest companion installation, upstream attribution and self-contained plugin release packaging.
+- Separate local readiness and actual Web execution acceptance, with documented authentication and rollback steps.
+
+Based on Engineering Bridge v1.2.1. Later upstream v1.4.4 features are not implied; see docs/upstreams.md. This is a beta distribution, not a certification of every ChatGPT account, browser mode or platform.
+
+---
+
+## Original upstream release history
+
 # Release notes
 
 ## v1.2.1

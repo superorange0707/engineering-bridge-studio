@@ -1,21 +1,39 @@
 {
-  "name": "engineering-bridge",
-  "version": "1.2.1",
-  "description": "A local MCP bridge for supervised read-only Codex and DSH tasks with controlled patch application.",
+  "name": "engineering-bridge-studio",
+  "version": "2.0.0-beta.1",
+  "description": "ChatGPT Web planning and writing with isolated native Codex execution, shared Bridge state, and reproducible research evidence.",
   "type": "module",
   "files": [
+    ".codex-plugin/**",
+    ".mcp.json",
+    "bin/*.mjs",
     "dist/src/**",
     "config/workspaces.example.json",
-    "docs/**",
+    "config/web-companion.lock.json",
+    "docs/architecture.md",
+    "docs/security.md",
+    "docs/threat-model.md",
+    "docs/tools.md",
+    "docs/installation.md",
+    "docs/validation.md",
+    "docs/upstreams.md",
+    "docs/chatgpt-codex-workflow.md",
+    "docs/codex-chatgpt-web-comparison.md",
+    "examples/**",
     "README.md",
+    "README.en.md",
     "README.zh-CN.md",
     "RELEASE_NOTES.md",
     "SECURITY.md",
+    "skills/**",
     "CONTRIBUTING.md",
-    "LICENSE"
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "config/release-marketplace.json"
   ],
   "bin": {
-    "engineering-bridge": "dist/src/mcp-stdio.js"
+    "engineering-bridge": "dist/src/mcp-stdio.js",
+    "engineering-bridge-studio": "bin/bridge.mjs"
   },
   "engines": {
     "node": ">=22"
@@ -25,14 +43,20 @@
     "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc",
     "test": "npm run build && node --test \"dist/tests/unit/**/*.test.js\"",
     "mcp:stdio": "node dist/src/mcp-stdio.js",
-    "prepack": "npm run build"
+    "check:web": "node bin/check-web-bridge.mjs",
+    "smoke:collaboration": "node bin/collaboration-smoke.mjs --live",
+    "prepack": "npm run build",
+    "studio": "node bin/bridge.mjs",
+    "release:check": "node bin/release-check.mjs",
+    "release:build": "npm run build && node bin/build-release.mjs"
   },
   "keywords": [
     "mcp",
     "codex",
-    "local-first",
-    "read-only",
-    "controlled-patch"
+    "chatgpt",
+    "research",
+    "experiments",
+    "local-first"
   ],
   "license": "MIT",
   "devDependencies": {
@@ -42,5 +66,13 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
     "zod": "^3.25.76"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/superorange0707/engineering-bridge-studio.git"
+  },
+  "homepage": "https://github.com/superorange0707/engineering-bridge-studio#readme",
+  "bugs": {
+    "url": "https://github.com/superorange0707/engineering-bridge-studio/issues"
   }
 }

@@ -13,14 +13,14 @@ export interface WorkspaceLookup {
   readonly id: string;
   readonly root: string;
   readonly allowWrite: boolean;
-  readonly source: "manual" | "managed";
+  readonly source: "approved" | "managed";
 }
 
 type Registration = {
   root: string;
   canonicalRoot: string;
   allowWrite: boolean;
-  source: "manual" | "managed";
+  source: "approved" | "managed";
 };
 
 export class RegisteredWorkspaceRegistry {
@@ -46,9 +46,9 @@ export class RegisteredWorkspaceRegistry {
         root: entry.root,
         canonicalRoot,
         allowWrite: entry.allow_write ?? false,
-        source: "manual"
+        source: "approved"
       });
-      // Duplicate canonical roots among manual entries do not fail startup;
+      // Duplicate canonical roots among approved entries do not fail startup;
       // the first entry wins for canonical lookup.
       if (!this.canonicalRoots.has(canonicalRoot)) this.canonicalRoots.set(canonicalRoot, entry.id);
     }
@@ -87,25 +87,47 @@ export class RegisteredWorkspaceRegistry {
   }
 
   registerManaged(id: string, root: string, allowWrite = false): void {
+    this.register(id, root, allowWrite, "managed");
+  }
+
+  registerApproved(id: string, root: string, allowWrite = false): void {
+    this.register(id, root, allowWrite, "approved");
+  }
+
+  rebind(workspaceId: string, root: string): void {
+    const existing = this.registrations.get(workspaceId);
+    if (existing === undefined) throw new CoreError("UNKNOWN_WORKSPACE");
+    const canonicalRoot = this.canonicalize(root);
+    const occupied = this.canonicalRoots.get(canonicalRoot);
+    if (occupied !== undefined && occupied !== workspaceId) {
+      throw new CoreError("WORKSPACE_IDENTITY_AMBIGUOUS");
+    }
+    this.canonicalRoots.delete(existing.canonicalRoot);
+    existing.root = root;
+    existing.canonicalRoot = canonicalRoot;
+    this.canonicalRoots.set(canonicalRoot, workspaceId);
+  }
+
+  private register(id: string, root: string, allowWrite: boolean, source: "approved" | "managed"): void {
     const existing = this.registrations.get(id);
     if (existing !== undefined) {
-      if (existing.root === root) return;
+      if (existing.root === root && existing.source === source && existing.allowWrite === allowWrite) return;
       throw new CoreError("WORKSPACE_BOUNDARY_VIOLATION");
     }
     const canonicalRoot = this.canonicalize(root);
     if (this.canonicalRoots.has(canonicalRoot)) throw new CoreError("WORKSPACE_BOUNDARY_VIOLATION");
-    this.registrations.set(id, { root, canonicalRoot, allowWrite, source: "managed" });
+    this.registrations.set(id, { root, canonicalRoot, allowWrite, source });
     this.canonicalRoots.set(canonicalRoot, id);
   }
 
-  sourceOf(workspaceId: string): "manual" | "managed" {
+  sourceOf(workspaceId: string): "approved" | "managed" {
     const registration = this.registrations.get(workspaceId);
     if (registration === undefined) throw new CoreError("UNKNOWN_WORKSPACE");
     return registration.source;
   }
 
-  // Grants controlled-write authorization for one managed workspace. Manual
-  // workspaces stay authoritative through workspaces.json only. Idempotent.
+  // Grants controlled-write authorization for one managed workspace. Approved
+  // seed policies stay authoritative through workspaces.json. Idempotent.
   authorizeWrite(workspaceId: string): void {
     const registration = this.registrations.get(workspaceId);
     if (registration === undefined) throw new CoreError("UNKNOWN_WORKSPACE");

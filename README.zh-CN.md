@@ -1,5 +1,3 @@
-# Engineering Bridge
+# Engineering Bridge Studio
 
-中文 README 已成为仓库默认首页：[简体中文](README.md)
-
-English README: [English](README.en.md)
+中文说明位于 [README.md](README.md)，安装步骤见 [安装指南](docs/installation.md)。

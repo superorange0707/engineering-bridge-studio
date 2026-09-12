@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "product": "engineering-bridge-web-companion",
+  "repository": "miuuyy/codex-chatgpt-web",
+  "release_tag": "v5.0.6",
+  "source_commit": "e85e3693fdb4e3e033348c08df0298c20fcdb612",
+  "release_api": "https://api.github.com/repos/miuuyy/codex-chatgpt-web/releases/tags/v5.0.6",
+  "download_hosts": [
+    "github.com",
+    "release-assets.githubusercontent.com",
+    "objects.githubusercontent.com",
+    "github-releases.githubusercontent.com"
+  ],
+  "archive_limits": {
+    "max_bytes": 220000000,
+    "max_uncompressed_bytes": 1000000000,
+    "max_entries": 50000,
+    "max_path_bytes": 1024
+  },
+  "assets": {
+    "darwin-arm64": {
+      "name": "codex-web-gpt-5.0.6-mac-arm64.zip",
+      "size": 168983025,
+      "sha256": "ebd864c931946cdd2701915ffb43c102250d79c463d9273ae7ddd4570545937b",
+      "url": "https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.6/codex-web-gpt-5.0.6-mac-arm64.zip"
+    },
+    "darwin-x64": {
+      "name": "codex-web-gpt-5.0.6-mac-x64.zip",
+      "size": 179537435,
+      "sha256": "be91db78a3b913d1269bd2b4738d2f9e6488082310c18de26d457d4c91520c0c",
+      "url": "https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.6/codex-web-gpt-5.0.6-mac-x64.zip"
+    }
+  },
+  "notices": [
+    {
+      "name": "LICENSE",
+      "size": 1087,
+      "sha256": "d8b06e8d802722749b8f09e4ed1f2439fde0995a09b7e47c65dca3cc54d43d6e",
+      "url": "https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.6/LICENSE"
+    },
+    {
+      "name": "THIRD_PARTY_NOTICES.txt",
+      "size": 205880,
+      "sha256": "c94c5fa855a81af233a155f093ca1db441fe66513dc0127317afbc1dd18bf55f",
+      "url": "https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.6/THIRD_PARTY_NOTICES.txt"
+    },
+    {
+      "name": "Bun-1.4.0.md",
+      "size": 5377,
+      "sha256": "2cb858b2db8fc793bca2093489c5bc8eee615d002cc4924254904044c27a0afa",
+      "url": "https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.6/Bun-1.4.0.md"
+    },
+    {
+      "name": "libnotify-0.8.7-LGPL-2.1.md",
+      "size": 26607,
+      "sha256": "fb293dcf753752a80c7bec86cd406b53c55b086c1f1bbf71425ce437ea3f1e4c",
+      "url": "https://github.com/miuuyy/codex-chatgpt-web/releases/download/v5.0.6/libnotify-0.8.7-LGPL-2.1.md"
+    }
+  ]
+}

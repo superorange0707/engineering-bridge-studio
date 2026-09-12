@@ -1,11 +1,19 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
 import { CoreError } from "../../../src/core/errors.js";
+import { isId, newId } from "../../../src/core/ids.js";
 import { ManagedWorkspaceCatalog } from "../../../src/workspaces/managed-workspace-catalog.js";
+import {
+  filesystemIdentity,
+  repositoryIdentity,
+  stableObjectIdentity
+} from "../../../src/workspaces/repository-identity.js";
 
 function catalogPath(): string {
   return join(mkdtempSync(join(tmpdir(), "bridge-catalog-")), "managed-workspaces.json");
@@ -104,9 +112,202 @@ test("skips individually invalid records and rejects a corrupt whole file", asyn
   writeFileSync(path, "not json at all");
   await expectCode(() => new ManagedWorkspaceCatalog(path).load(), "INTERNAL_ERROR");
 
-  writeFileSync(path, `${JSON.stringify({ version: 2, workspaces: [] })}\n`);
+  writeFileSync(path, `${JSON.stringify({ version: 4, workspaces: [] })}\n`);
   await expectCode(() => new ManagedWorkspaceCatalog(path).load(), "INTERNAL_ERROR");
 });
+
+test("persists stable identity evidence and rebinds without changing workspace id or permission", async () => {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), "bridge-catalog-identity-")));
+  const stateRoot = join(directory, "state");
+  const path = join(stateRoot, "workspace-registry.json");
+  const catalog = new ManagedWorkspaceCatalog(path, stateRoot);
+  await catalog.load();
+  const repository = repositoryIdentity("sha1", ["example.com/org/repo"], ["a".repeat(40)]);
+  const created = await catalog.registerOnce("/old/repo", {
+    displayName: "repo",
+    aliases: ["/alias/repo"],
+    gitTopLevel: "/old/repo",
+    logicalRoot: ".",
+    repository,
+    source: "managed"
+  });
+  assert.equal(isId(created.id), true);
+
+  await catalog.rebind(created.id, "/new/repo", {
+    gitTopLevel: "/new/repo",
+    logicalRoot: ".",
+    repository,
+    source: "managed"
+  });
+  const record = catalog.get(created.id)!;
+  assert.equal(record.id, created.id);
+  assert.equal(record.root, "/new/repo");
+  assert.deepEqual(record.previousPaths, ["/old/repo"]);
+  assert.deepEqual(record.aliases, ["/alias/repo"]);
+  assert.equal(record.allowWrite, false);
+  assert.equal(statIsDirectory(join(stateRoot, created.id)), true);
+
+  const reloaded = new ManagedWorkspaceCatalog(path, stateRoot);
+  await reloaded.load();
+  assert.deepEqual(reloaded.get(created.id), record);
+});
+
+test("round-trips explicit identity-v2 object evidence and rejects malformed retained evidence", async () => {
+  const path = catalogPath();
+  const catalog = new ManagedWorkspaceCatalog(path);
+  const filesystem = filesystemIdentity(
+    "1".repeat(64),
+    stableObjectIdentity("70", "1700000000000000300", "16777243")
+  );
+  const repository = repositoryIdentity(
+    "sha1",
+    ["example.com/org/repo"],
+    ["a".repeat(40)],
+    "2".repeat(64),
+    stableObjectIdentity("71", "1700000000000000400", "16777243")
+  );
+  const { id } = await catalog.registerOnce("/identity-v2/repo", {
+    workspaceType: "git_workspace",
+    filesystem,
+    gitTopLevel: "/identity-v2/repo",
+    logicalRoot: ".",
+    repository,
+    source: "approved"
+  });
+  const reloaded = new ManagedWorkspaceCatalog(path);
+  await reloaded.load();
+  assert.deepEqual(reloaded.get(id)?.filesystem.stableObjectIdentity, filesystem.stableObjectIdentity);
+  assert.deepEqual(reloaded.get(id)?.repository?.stableObjectIdentity, repository.stableObjectIdentity);
+
+  const retained = JSON.parse(readFileSync(path, "utf8")) as {
+    version: number;
+    workspaces: Array<{ filesystem_identity: { stable_object_identity: { id: string } } }>;
+  };
+  retained.workspaces[0]!.filesystem_identity.stable_object_identity.id = "f".repeat(64);
+  writeFileSync(path, `${JSON.stringify(retained, null, 2)}\n`);
+  const quarantined = new ManagedWorkspaceCatalog(path);
+  await quarantined.load();
+  assert.deepEqual(quarantined.entries(), []);
+});
+
+test("identity v2 refuses cross-volume root substitution even when Git evidence is otherwise identical", async () => {
+  const catalog = new ManagedWorkspaceCatalog();
+  const id = newId();
+  const repository = repositoryIdentity(
+    "sha1",
+    ["example.com/org/repo"],
+    ["a".repeat(40)],
+    "1".repeat(64),
+    stableObjectIdentity("110", "1700000000000001300", "16777243")
+  );
+  await catalog.registerOnce("/old/repo", {
+    id,
+    workspaceType: "git_workspace",
+    filesystem: filesystemIdentity(
+      "2".repeat(64),
+      stableObjectIdentity("111", "1700000000000001400", "16777243")
+    ),
+    gitTopLevel: "/old/repo",
+    logicalRoot: ".",
+    repository,
+    allowWrite: true,
+    source: "approved"
+  });
+  await expectCode(() => catalog.registerOnce("/copied/repo", {
+    id,
+    workspaceType: "git_workspace",
+    filesystem: filesystemIdentity(
+      "3".repeat(64),
+      stableObjectIdentity("112", "1700000000000001500", "16777299")
+    ),
+    gitTopLevel: "/copied/repo",
+    logicalRoot: ".",
+    repository,
+    allowWrite: true,
+    source: "approved"
+  }), "WORKSPACE_BOUNDARY_VIOLATION");
+});
+
+test("upgrades a directory workspace to Git without changing id, permission, or state directory", async () => {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), "bridge-catalog-upgrade-")));
+  const stateRoot = join(directory, "state");
+  const path = join(stateRoot, "workspace-registry.json");
+  const catalog = new ManagedWorkspaceCatalog(path, stateRoot);
+  const filesystem = filesystemIdentity("a".repeat(64));
+  const created = await catalog.registerOnce("/project", {
+    workspaceType: "directory_workspace",
+    filesystem,
+    codexProjectReferences: ["/project"],
+    allowWrite: true,
+    source: "approved"
+  });
+
+  const upgraded = await catalog.rebind(created.id, "/project", {
+    workspaceType: "git_workspace",
+    filesystem,
+    codexProjectReferences: ["/alias/project"],
+    gitTopLevel: "/project",
+    logicalRoot: ".",
+    repository: repositoryIdentity("sha1", ["example.com/org/project"], ["b".repeat(40)]),
+    allowWrite: false,
+    source: "managed"
+  });
+
+  assert.equal(upgraded.id, created.id);
+  assert.equal(upgraded.workspaceType, "git_workspace");
+  assert.equal(upgraded.allowWrite, true);
+  assert.equal(upgraded.source, "approved");
+  assert.deepEqual(upgraded.codexProjectReferences, ["/alias/project", "/project"]);
+  assert.equal(statIsDirectory(join(stateRoot, created.id)), true);
+});
+
+test("an approved seed remains compatible with a rebound path when high-confidence Git identity matches", async () => {
+  const catalog = new ManagedWorkspaceCatalog(undefined);
+  const id = newId();
+  const oldIdentity = repositoryIdentity(
+    "sha1",
+    ["example.com/org/repo"],
+    ["a".repeat(40)],
+    "1".repeat(64)
+  );
+  await catalog.registerOnce("/old/repo", {
+    id,
+    gitTopLevel: "/old/repo",
+    logicalRoot: ".",
+    repository: oldIdentity,
+    source: "approved"
+  });
+  const movedIdentity = repositoryIdentity(
+    "sha1",
+    ["example.com/org/repo"],
+    ["a".repeat(40)],
+    "2".repeat(64)
+  );
+  await catalog.rebind(id, "/new/repo", {
+    gitTopLevel: "/new/repo",
+    logicalRoot: ".",
+    repository: movedIdentity,
+    source: "approved"
+  });
+
+  const startupSeed = await catalog.registerOnce("/old/repo", {
+    id,
+    gitTopLevel: "/old/repo",
+    logicalRoot: ".",
+    repository: oldIdentity,
+    source: "approved"
+  });
+  assert.deepEqual(startupSeed, { id, created: false });
+  assert.equal(catalog.get(id)?.root, "/new/repo");
+});
+
+function statIsDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
 
 test("a catalog without a state file path stays process-local", async () => {
   const catalog = new ManagedWorkspaceCatalog(undefined);

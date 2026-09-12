@@ -10,9 +10,19 @@ test("exposes the executor error codes", () => {
     "UNKNOWN_WORKSPACE",
     "WORKSPACE_BOUNDARY_VIOLATION",
     "WORKSPACE_PRECONDITION_FAILED",
+    "WORKSPACE_IDENTITY_MISMATCH",
+    "WORKSPACE_IDENTITY_AMBIGUOUS",
+    "WORKSPACE_SCAN_LIMIT_EXCEEDED",
     "CODEX_UNAVAILABLE",
     "CODEX_PROTOCOL_ERROR",
     "CODEX_EXECUTION_FAILED",
+    "CODEX_EXECUTION_TIMEOUT",
+    "CONTROLLED_PROPOSAL_ORPHANED",
+    "CONTROLLED_PROPOSAL_VALIDATION_FAILED",
+    "CODEX_ROLE_MODEL_UNAVAILABLE",
+    "CODEX_MAX_REASONING_UNAVAILABLE",
+    "CODEX_ROLE_THREAD_MISMATCH",
+    "INVALID_HANDOFF_SNAPSHOT",
     "DSH_UNAVAILABLE",
     "DSH_PROTOCOL_ERROR",
     "DSH_EXECUTION_FAILED"
@@ -25,6 +35,17 @@ test("exposes the executor error codes", () => {
   });
   assert.deepEqual(serializeError(new CoreError("CODEX_EXECUTION_FAILED")), {
     code: "CODEX_EXECUTION_FAILED", message: "Codex execution failed."
+  });
+  assert.deepEqual(serializeError(new CoreError("CODEX_EXECUTION_TIMEOUT")), {
+    code: "CODEX_EXECUTION_TIMEOUT", message: "Codex execution exceeded the controlled task deadline."
+  });
+  assert.deepEqual(serializeError(new CoreError("CONTROLLED_PROPOSAL_ORPHANED")), {
+    code: "CONTROLLED_PROPOSAL_ORPHANED",
+    message: "The controlled proposal was interrupted by a Bridge restart."
+  });
+  assert.deepEqual(serializeError(new CoreError("CONTROLLED_PROPOSAL_VALIDATION_FAILED")), {
+    code: "CONTROLLED_PROPOSAL_VALIDATION_FAILED",
+    message: "The controlled proposal failed deterministic validation."
   });
   assert.deepEqual(serializeError(new CoreError("DSH_UNAVAILABLE")), {
     code: "DSH_UNAVAILABLE", message: "DSH is unavailable."
@@ -43,6 +64,10 @@ test("exposes the executor error codes", () => {
   });
   assert.deepEqual(serializeError(new CoreError("WORKSPACE_PRECONDITION_FAILED")), {
     code: "WORKSPACE_PRECONDITION_FAILED", message: "The workspace preconditions were not met."
+  });
+  assert.deepEqual(serializeError(new CoreError("WORKSPACE_IDENTITY_AMBIGUOUS")), {
+    code: "WORKSPACE_IDENTITY_AMBIGUOUS",
+    message: "More than one repository matches the registered workspace identity."
   });
 });
 

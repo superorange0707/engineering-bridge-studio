@@ -2,11 +2,15 @@ name: CI
 
 on:
   push:
+    branches: ['**']
   pull_request:
 
 jobs:
   ci:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -19,5 +23,5 @@ jobs:
         run: npm ci
       - name: Run tests
         run: npm test
-      - name: Build
-        run: npm run build
+      - name: Check release contents
+        run: npm run release:check

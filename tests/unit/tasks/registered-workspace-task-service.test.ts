@@ -4,10 +4,20 @@ import { PassThrough } from "node:stream";
 import test from "node:test";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 
+import { CoreError } from "../../../src/core/errors.js";
 import type { SerializedError } from "../../../src/core/errors.js";
 import type { Executor, ExecutorRequest, ExecutorResult } from "../../../src/executors/executor.js";
 import { DshExecutor } from "../../../src/executors/dsh-executor.js";
-import { RegisteredWorkspaceTaskService } from "../../../src/tasks/registered-workspace-task-service.js";
+import {
+  boundExecutorEvidence,
+  MAX_EXECUTOR_EVIDENCE_BYTES,
+  MAX_EXECUTOR_EVIDENCE_CHANGES,
+  MAX_EXECUTOR_EVIDENCE_ID_OR_STATUS,
+  MAX_EXECUTOR_EVIDENCE_ITEMS,
+  MAX_EXECUTOR_EVIDENCE_TEXT,
+  RegisteredWorkspaceTaskService,
+  validateExecutorEvidence
+} from "../../../src/tasks/registered-workspace-task-service.js";
 import { RegisteredWorkspaceRegistry } from "../../../src/workspaces/registered-workspace-registry.js";
 
 const ROOT = "/registered/root";
@@ -83,7 +93,7 @@ test("returns immediately and exposes queued/running without a result", async ()
   const executor: Executor = { execute: (request) => { calls.push(request); return pending.promise; } };
   const service = new RegisteredWorkspaceTaskService(registry(), () => executor);
 
-  const { taskId } = service.runTask({ workspace_id: "known", instruction: "inspect" });
+  const { taskId } = service.runTask({ workspace_id: "known", instruction: "inspect", routing: "local_lead" });
 
   assert.deepEqual(service.status(taskId), { taskId, state: "queued" });
   assert.equal(service.result(taskId), undefined);
@@ -95,15 +105,36 @@ test("returns immediately and exposes queued/running without a result", async ()
   await waitForTerminal(service, taskId);
 });
 
+test("defaults Codex to auto routing and rejects Codex routing fields for DSH", () => {
+  let factories = 0;
+  const service = new RegisteredWorkspaceTaskService(registry(), () => {
+    factories += 1;
+    throw new Error("must not create an executor");
+  });
+  const implicit = service.startTask({ workspace_id: "known", instruction: "inspect" });
+  const explicit = service.startTask({ workspace_id: "known", instruction: "inspect", executor: "codex" });
+  assert.equal(service.taskView(implicit.taskId)?.routing, "auto");
+  assert.equal(service.taskView(implicit.taskId)?.logicalRole, "local_lead");
+  assert.equal(service.taskView(explicit.taskId)?.logicalRole, "local_lead");
+  assert.throws(() => service.startTask({
+    workspace_id: "known", instruction: "inspect", executor: "dsh", routing: "local_lead"
+  }), (error: unknown) => error instanceof CoreError && error.code === "INVALID_STATE_TRANSITION");
+  assert.equal(factories, 0);
+});
+
 test("taskView polls a legacy runTask through completed output", async () => {
   const pending = deferred<ExecutorResult>();
   const executor: Executor = { execute: () => pending.promise };
   const service = new RegisteredWorkspaceTaskService(registry(), () => executor);
-  const { taskId } = service.runTask({ workspace_id: "known", instruction: "inspect" });
+  const { taskId } = service.runTask({ workspace_id: "known", instruction: "inspect", routing: "local_lead" });
 
-  assert.deepEqual(service.taskView(taskId), { taskId, state: "queued", executor: "codex", ready: false });
+  assert.deepEqual(service.taskView(taskId), { taskId, state: "queued", executor: "codex",
+    routing: "local_lead", logicalRole: "local_lead", routingReason: "explicit_override",
+    model: "gpt-5.6-terra", reasoningEffort: "max", ready: false });
   await Promise.resolve();
-  assert.deepEqual(service.taskView(taskId), { taskId, state: "running", executor: "codex", ready: false });
+  assert.deepEqual(service.taskView(taskId), { taskId, state: "running", executor: "codex",
+    routing: "local_lead", logicalRole: "local_lead", routingReason: "explicit_override",
+    model: "gpt-5.6-terra", reasoningEffort: "max", ready: false });
 
   pending.resolve({ kind: "completed", output: "proposal diff" });
   await waitForTerminal(service, taskId);
@@ -112,6 +143,11 @@ test("taskView polls a legacy runTask through completed output", async () => {
     taskId,
     state: "completed",
     executor: "codex",
+    routing: "local_lead",
+    logicalRole: "local_lead",
+    routingReason: "explicit_override",
+    model: "gpt-5.6-terra",
+    reasoningEffort: "max",
     ready: true,
     output: "proposal diff"
   });
@@ -124,13 +160,211 @@ test("records completed output and preserves the instruction", async () => {
   };
   const service = new RegisteredWorkspaceTaskService(registry(), () => executor);
   const instruction = "  exact instruction\nwith bytes $()  ";
-  const { taskId } = service.runTask({ workspace_id: "known", instruction });
+  const { taskId } = service.runTask({ workspace_id: "known", instruction, routing: "local_lead" });
 
   await waitForTerminal(service, taskId);
 
-  assert.deepEqual(calls, [{ taskId, instruction }]);
+  assert.deepEqual(calls, [{ taskId, instruction, sandbox: "read-only", logicalRole: "local_lead" }]);
   assert.deepEqual(service.status(taskId), { taskId, state: "completed" });
   assert.deepEqual(service.result(taskId), { id: taskId, state: "completed", output: "exact output\n\n" });
+});
+
+test("legacy controlled-task results preserve only executor-produced bounded evidence", async () => {
+  const evidence = [{
+    id: "command-1",
+    type: "commandExecution" as const,
+    status: "completed",
+    command: "inspect README.md and package.json"
+  }];
+  let terminalEvidence: unknown;
+  const executor: Executor = {
+    execute: async () => ({ kind: "completed", output: "proposal", evidence })
+  };
+  const service = new RegisteredWorkspaceTaskService(registry(), () => executor);
+  const { taskId } = service.runTask(
+    { workspace_id: "known", instruction: "inspect", routing: "local_lead" },
+    undefined,
+    (result) => { terminalEvidence = result.evidence; }
+  );
+
+  await waitForTerminal(service, taskId);
+
+  assert.equal(terminalEvidence, evidence);
+  assert.deepEqual(terminalEvidence, evidence);
+  assert.equal(JSON.stringify(terminalEvidence), JSON.stringify(evidence));
+  assert.deepEqual(service.result(taskId), {
+    id: taskId,
+    state: "completed",
+    output: "proposal",
+    evidence
+  });
+  assert.deepEqual(service.taskView(taskId)?.evidence, evidence);
+});
+
+test("legacy and interactive task results enforce one aggregate evidence byte ceiling", async () => {
+  const evidence = Array.from({ length: 50 }, (_, index) => ({
+    id: `command-${index}`,
+    type: "commandExecution" as const,
+    status: "completed",
+    command: "inspect",
+    result: { state: "complete" as const, exit_code: 0, output: "x".repeat(16_384) }
+  }));
+  const executor: Executor = { execute: async () => ({ kind: "completed", output: "done", evidence }) };
+  const service = new RegisteredWorkspaceTaskService(registry(), () => executor);
+
+  const legacy = service.runTask({ workspace_id: "known", instruction: "inspect", routing: "local_lead" });
+  await waitForTerminal(service, legacy.taskId);
+  const retained = service.result(legacy.taskId)?.evidence;
+  assert.ok(retained);
+  assert.ok(Buffer.byteLength(JSON.stringify(retained), "utf8") <= MAX_EXECUTOR_EVIDENCE_BYTES);
+  assert.equal(retained.at(-1)?.id, "evidence-aggregate-drop");
+
+  const interactive = service.startTask({
+    workspace_id: "known", instruction: "inspect", routing: "local_lead"
+  });
+  await waitForInteractiveReady(service, interactive.taskId);
+  const exposed = service.taskView(interactive.taskId)?.evidence;
+  assert.ok(exposed);
+  assert.ok(Buffer.byteLength(JSON.stringify(exposed), "utf8") <= MAX_EXECUTOR_EVIDENCE_BYTES);
+  assert.equal(exposed.at(-1)?.id, "evidence-aggregate-drop");
+});
+
+test("live evidence is structurally bounded before task exposure", async () => {
+  const evidence = [{
+    id: "command-oversize",
+    type: "commandExecution" as const,
+    status: "completed",
+    command: "x".repeat(MAX_EXECUTOR_EVIDENCE_TEXT + 1),
+    result: { state: "complete" as const, exit_code: 0,
+      output: "z".repeat(MAX_EXECUTOR_EVIDENCE_TEXT + 1) }
+  }, {
+    id: "change-oversize",
+    type: "fileChange" as const,
+    status: "completed",
+    changes: [{ path: "README.md", diff: "y".repeat(MAX_EXECUTOR_EVIDENCE_TEXT + 1) }]
+  }];
+  const service = new RegisteredWorkspaceTaskService(registry(), () => ({
+    execute: async () => ({ kind: "completed", output: "done", evidence })
+  }));
+  const { taskId } = service.startTask({
+    workspace_id: "known", instruction: "inspect", routing: "local_lead"
+  });
+  await waitForInteractiveReady(service, taskId);
+
+  const exposed = service.taskView(taskId)?.evidence;
+  assert.equal(exposed?.[0]?.command?.length, MAX_EXECUTOR_EVIDENCE_TEXT);
+  assert.match(exposed?.[0]?.command ?? "", /\[truncated\]$/u);
+  assert.equal(exposed?.[0]?.result?.state, "truncated");
+  assert.equal(exposed?.[0]?.result?.output?.length, MAX_EXECUTOR_EVIDENCE_TEXT);
+  assert.match(exposed?.[0]?.result?.output ?? "", /\[truncated\]$/u);
+  assert.equal(exposed?.[1]?.changes?.[0]?.diff.length, MAX_EXECUTOR_EVIDENCE_TEXT);
+  assert.match(exposed?.[1]?.changes?.[0]?.diff ?? "", /\[truncated\]$/u);
+});
+
+test("the shared evidence contract bounds item, change, id, and status structure", () => {
+  const tooManyItems = Array.from({ length: MAX_EXECUTOR_EVIDENCE_ITEMS + 1 }, (_, index) => ({
+    id: `command-${index}`,
+    type: "commandExecution" as const,
+    status: "completed",
+    command: "ok"
+  }));
+  const boundedItems = boundExecutorEvidence(tooManyItems);
+  assert.equal(boundedItems?.length, MAX_EXECUTOR_EVIDENCE_ITEMS);
+  assert.equal(boundedItems?.at(-1)?.id, "evidence-structure-drop");
+
+  const boundedChanges = boundExecutorEvidence([{
+    id: "changes",
+    type: "fileChange",
+    status: "completed",
+    changes: Array.from({ length: MAX_EXECUTOR_EVIDENCE_CHANGES + 1 }, (_, index) => ({
+      path: `file-${index}.txt`, diff: "ok"
+    }))
+  }]);
+  assert.equal(boundedChanges?.[0]?.changes?.length, MAX_EXECUTOR_EVIDENCE_CHANGES);
+  assert.equal(boundedChanges?.[0]?.changes?.at(-1)?.path, "[truncated]");
+
+  const invalidIdentity = boundExecutorEvidence([{
+    id: "x".repeat(MAX_EXECUTOR_EVIDENCE_ID_OR_STATUS + 1),
+    type: "commandExecution",
+    status: "completed",
+    command: "ok"
+  }, {
+    id: "command-status",
+    type: "commandExecution",
+    status: "x".repeat(MAX_EXECUTOR_EVIDENCE_ID_OR_STATUS + 1),
+    command: "ok"
+  }]);
+  assert.equal(invalidIdentity?.[0]?.id, "evidence-structure-drop");
+  assert.match(invalidIdentity?.[0]?.command ?? "", /^2 evidence item\(s\) dropped/u);
+  assert.ok(validateExecutorEvidence(boundedItems));
+  assert.ok(validateExecutorEvidence(boundedChanges));
+  assert.ok(validateExecutorEvidence(invalidIdentity));
+});
+
+test("the shared result contract enforces text safety and parent status/exit-code consistency", () => {
+  const unsafeLive = boundExecutorEvidence([{
+    id: "unsafe-output",
+    type: "commandExecution",
+    status: "completed",
+    command: "inspect",
+    result: { state: "complete", exit_code: 0, output: "unsafe\u001b[31m" }
+  }]);
+  assert.deepEqual(unsafeLive, [{
+    id: "unsafe-output",
+    type: "commandExecution",
+    status: "completed",
+    command: "inspect",
+    result: { state: "withheld", exit_code: 0, reason: "unsafe_output" }
+  }]);
+
+  assert.equal(validateExecutorEvidence([{
+    id: "oversize-result",
+    type: "commandExecution",
+    status: "completed",
+    command: "inspect",
+    result: { state: "complete", exit_code: 0, output: "x".repeat(MAX_EXECUTOR_EVIDENCE_TEXT + 1) }
+  }]), undefined);
+  assert.equal(validateExecutorEvidence([{
+    id: "malformed-result",
+    type: "commandExecution",
+    status: "completed",
+    command: "inspect",
+    result: { state: "withheld", output: "must not coexist", reason: "secret_risk" }
+  }]), undefined);
+
+  const inconsistent = [{
+    id: "failed-complete",
+    type: "commandExecution" as const,
+    status: "failed",
+    command: "inspect",
+    result: { state: "complete" as const, exit_code: 0, output: "must not escape" }
+  }, {
+    id: "nonzero-complete",
+    type: "commandExecution" as const,
+    status: "completed",
+    command: "inspect",
+    result: { state: "complete" as const, exit_code: 1, output: "must not escape" }
+  }, {
+    id: "declined-truncated",
+    type: "commandExecution" as const,
+    status: "declined",
+    command: "inspect",
+    result: { state: "truncated" as const, exit_code: 0, output: "must not escape\n[truncated]" }
+  }];
+  assert.deepEqual(boundExecutorEvidence(inconsistent), inconsistent.map(({ id, status, command, result }) => ({
+    id, type: "commandExecution", status, command,
+    result: { state: "withheld", exit_code: result.exit_code, reason: "non_success" }
+  })));
+  for (const item of inconsistent) assert.equal(validateExecutorEvidence([item]), undefined);
+
+  const valid = [{
+    id: "completed-success",
+    type: "commandExecution" as const,
+    status: "completed",
+    command: "inspect",
+    result: { state: "complete" as const, exit_code: 0, output: "safe output" }
+  }];
+  assert.deepEqual(validateExecutorEvidence(valid), valid);
 });
 
 test("applies a completed-output transform exactly once before storing the result", async () => {
@@ -138,7 +372,7 @@ test("applies a completed-output transform exactly once before storing the resul
   const executor: Executor = { execute: async () => ({ kind: "completed", output: "raw" }) };
   const service = new RegisteredWorkspaceTaskService(registry(), () => executor);
   const { taskId } = service.runTask(
-    { workspace_id: "known", instruction: "inspect" },
+    { workspace_id: "known", instruction: "inspect", routing: "local_lead" },
     (output) => { transforms += 1; return `${output}-transformed`; }
   );
 
@@ -159,7 +393,7 @@ test("awaits a terminal handler exactly once before exposing completed output", 
   const executor: Executor = { execute: async () => ({ kind: "completed", output: "done" }) };
   const service = new RegisteredWorkspaceTaskService(registry(), () => executor);
   const { taskId } = service.runTask(
-    { workspace_id: "known", instruction: "inspect" },
+    { workspace_id: "known", instruction: "inspect", routing: "local_lead" },
     undefined,
     async (result) => {
       handlerCalls += 1;
@@ -194,7 +428,7 @@ test("records executor failures", async () => {
   };
   const executor: Executor = { execute: async () => ({ kind: "failed", error }) };
   const service = new RegisteredWorkspaceTaskService(registry(), () => executor);
-  const { taskId } = service.runTask({ workspace_id: "known", instruction: "inspect" });
+  const { taskId } = service.runTask({ workspace_id: "known", instruction: "inspect", routing: "local_lead" });
 
   await waitForTerminal(service, taskId);
 
@@ -205,7 +439,7 @@ test("records executor failures", async () => {
 test("records an interrupted legacy task as an execution failure", async () => {
   const executor: Executor = { execute: async () => ({ kind: "interrupted", output: "partial" }) };
   const service = new RegisteredWorkspaceTaskService(registry(), () => executor);
-  const { taskId } = service.runTask({ workspace_id: "known", instruction: "inspect" });
+  const { taskId } = service.runTask({ workspace_id: "known", instruction: "inspect", routing: "local_lead" });
 
   await waitForTerminal(service, taskId);
 
@@ -248,7 +482,7 @@ test("records an interrupted DSH legacy task as DSH_EXECUTION_FAILED", async () 
 test("an interrupted legacy task without any partial output omits the field", async () => {
   const executor: Executor = { execute: async () => ({ kind: "interrupted", output: "" }) };
   const service = new RegisteredWorkspaceTaskService(registry(), () => executor);
-  const { taskId } = service.runTask({ workspace_id: "known", instruction: "inspect" });
+  const { taskId } = service.runTask({ workspace_id: "known", instruction: "inspect", routing: "local_lead" });
 
   await waitForTerminal(service, taskId);
 
@@ -265,7 +499,7 @@ test("an interrupted legacy task without any partial output omits the field", as
 test("records an interrupted interactive task as an execution failure without review output", async () => {
   const executor: Executor = { execute: async () => ({ kind: "interrupted", output: "partial" }) };
   const service = new RegisteredWorkspaceTaskService(registry(), () => executor);
-  const { taskId } = service.startTask({ workspace_id: "known", instruction: "inspect" });
+  const { taskId } = service.startTask({ workspace_id: "known", instruction: "inspect", routing: "local_lead" });
 
   while (service.taskView(taskId)?.state === "queued" || service.taskView(taskId)?.state === "running") {
     await new Promise<void>((resolve) => setImmediate(resolve));
@@ -275,6 +509,11 @@ test("records an interrupted interactive task as an execution failure without re
     taskId,
     state: "failed",
     executor: "codex",
+    routing: "local_lead",
+    logicalRole: "local_lead",
+    routingReason: "explicit_override",
+    model: "gpt-5.6-terra",
+    reasoningEffort: "max",
     ready: true,
     evidence: [],
     partial_output: "partial",
@@ -316,7 +555,7 @@ test("records an interrupted DSH interactive task as DSH_EXECUTION_FAILED", asyn
 test("an interrupted interactive task without any partial output omits the field", async () => {
   const executor: Executor = { execute: async () => ({ kind: "interrupted", output: "" }) };
   const service = new RegisteredWorkspaceTaskService(registry(), () => executor);
-  const { taskId } = service.startTask({ workspace_id: "known", instruction: "inspect" });
+  const { taskId } = service.startTask({ workspace_id: "known", instruction: "inspect", routing: "local_lead" });
   await waitForInteractiveReady(service, taskId);
 
   const view = service.taskView(taskId);
@@ -480,7 +719,7 @@ test("taskView exposes the native Codex thread id once one exists and keeps it a
     execute: async () => ({ kind: "completed", output: "done", threadId: "thread-1" })
   };
   const service = new RegisteredWorkspaceTaskService(registry(), () => executor);
-  const { taskId } = service.startTask({ workspace_id: "known", instruction: "inspect" });
+  const { taskId } = service.startTask({ workspace_id: "known", instruction: "inspect", routing: "local_lead" });
 
   while (service.taskView(taskId)?.state === "queued" || service.taskView(taskId)?.state === "running") {
     await new Promise<void>((resolve) => setImmediate(resolve));
@@ -504,7 +743,7 @@ test("continue preserves the same native Codex thread id and passes it to the re
     }
   };
   const service = new RegisteredWorkspaceTaskService(registry(), () => executor);
-  const { taskId } = service.startTask({ workspace_id: "known", instruction: "first" });
+  const { taskId } = service.startTask({ workspace_id: "known", instruction: "first", routing: "local_lead" });
   await waitForInteractiveReady(service, taskId);
   assert.equal(service.taskView(taskId)?.threadId, "thread-1");
 
@@ -512,7 +751,93 @@ test("continue preserves the same native Codex thread id and passes it to the re
   await waitForInteractiveReady(service, taskId);
 
   assert.deepEqual(requests.map(({ threadId }) => threadId), [undefined, "thread-1"]);
+  assert.deepEqual(requests.map(({ logicalRole }) => logicalRole), ["local_lead", "local_lead"]);
   assert.equal(service.taskView(taskId)?.threadId, "thread-1");
+});
+
+test("cross-role routing creates a linked new task without reusing the parent native thread", async () => {
+  const requests: ExecutorRequest[] = [];
+  const service = new RegisteredWorkspaceTaskService(registry(), () => ({
+    execute: async (request) => {
+      requests.push(request);
+      return {
+        kind: "completed",
+        output: "done",
+        threadId: request.logicalRole === "implementer" ? "thread-parent" : "thread-child"
+      };
+    }
+  }));
+  const parent = service.startTask({
+    workspace_id: "known",
+    instruction: "Fix the one parser test",
+    routing: "implementer"
+  });
+  await waitForInteractiveReady(service, parent.taskId);
+
+  const snapshot = {
+    objective: "Resolve the architectural blocker",
+    current_state: "The bounded implementation exposed a cross-module invariant",
+    changed_files: ["src/parser.ts"],
+    test_status: "Parser test still failing"
+  };
+  const child = service.startTask({
+    workspace_id: "known",
+    instruction: "Review the architecture and decide the safe fix",
+    routing: "repo_principal",
+    parent_task_id: parent.taskId,
+    handoff_snapshot: snapshot
+  });
+  await waitForInteractiveReady(service, child.taskId);
+
+  const childView = service.taskView(child.taskId);
+  assert.equal(childView?.parentTaskId, parent.taskId);
+  assert.equal(childView?.routingTransition, "escalation");
+  assert.deepEqual(childView?.handoffSnapshot, snapshot);
+  assert.equal(requests[1]?.threadId, undefined);
+  assert.equal(requests[1]?.logicalRole, "repo_principal");
+  assert.match(requests[1]?.instruction ?? "", /cross-module invariant/);
+});
+
+test("a linked task fails before creation without both a known parent and bounded snapshot", async () => {
+  const service = new RegisteredWorkspaceTaskService(registry(), () => ({
+    execute: async () => ({ kind: "completed", output: "done" })
+  }));
+  const unknownParent = "00000000-0000-4000-8000-000000000001";
+  assert.throws(() => service.startTask({
+    workspace_id: "known", instruction: "continue", parent_task_id: unknownParent
+  }), (error: unknown) => error instanceof CoreError && error.code === "INVALID_HANDOFF_SNAPSHOT");
+  assert.throws(() => service.startTask({
+    workspace_id: "known",
+    instruction: "continue",
+    parent_task_id: unknownParent,
+    handoff_snapshot: { objective: "continue", current_state: "known" }
+  }), (error: unknown) => error instanceof CoreError && error.code === "INVALID_STATE_TRANSITION");
+});
+
+test("steer and accept preserve the recorded Codex role", async () => {
+  const pending = deferred<ExecutorResult>();
+  const steers: string[] = [];
+  const executor: Executor = {
+    execute: () => pending.promise,
+    steer: async (instruction) => { steers.push(instruction); }
+  };
+  const service = new RegisteredWorkspaceTaskService(registry(), () => executor);
+  const { taskId } = service.startTask({
+    workspace_id: "known", instruction: "inspect", executor: "codex", routing: "repo_principal"
+  });
+  while (service.taskView(taskId)?.state === "queued") {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  await service.controlTask(taskId, "steer", "focus on safety");
+  assert.deepEqual(steers, ["focus on safety"]);
+  assert.equal(service.taskView(taskId)?.logicalRole, "repo_principal");
+
+  pending.resolve({ kind: "completed", output: "done", threadId: "thread-sol" });
+  await waitForInteractiveReady(service, taskId);
+  await service.controlTask(taskId, "accept");
+  assert.equal(service.taskView(taskId)?.logicalRole, "repo_principal");
+  assert.equal(service.taskView(taskId)?.model, "gpt-5.6-sol");
+  assert.equal(service.taskView(taskId)?.reasoningEffort, "max");
 });
 
 test("DSH taskView reports executor dsh without fabricating a thread id, across continue", async () => {
@@ -538,7 +863,7 @@ test("thread id is omitted while the native thread does not exist yet", async ()
   const pending = deferred<ExecutorResult>();
   const executor: Executor = { execute: () => pending.promise };
   const service = new RegisteredWorkspaceTaskService(registry(), () => executor);
-  const { taskId } = service.startTask({ workspace_id: "known", instruction: "inspect" });
+  const { taskId } = service.startTask({ workspace_id: "known", instruction: "inspect", routing: "local_lead" });
 
   while (service.taskView(taskId)?.state !== "running") {
     await new Promise<void>((resolve) => setImmediate(resolve));
@@ -551,19 +876,89 @@ test("thread id is omitted while the native thread does not exist yet", async ()
   assert.equal(service.taskView(taskId)?.threadId, "thread-1");
 });
 
-test("legacy controlled-patch taskView reports the fixed codex executor without a thread id", async () => {
-  // The legacy runTask record stores the executor but never retains a thread
-  // id, so the view must report only fields the record can prove.
+test("taskView exposes a validated native thread while its turn is still running", async () => {
+  const pending = deferred<ExecutorResult>();
+  const executor: Executor = {
+    execute: (request) => {
+      request.onThreadStarted?.("thread-early");
+      return pending.promise;
+    }
+  };
+  const service = new RegisteredWorkspaceTaskService(registry(), () => executor);
+  const { taskId } = service.startTask({ workspace_id: "known", instruction: "inspect", routing: "local_lead" });
+
+  while (service.taskView(taskId)?.state !== "running" || service.taskView(taskId)?.threadId === undefined) {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  assert.equal(service.taskView(taskId)?.ready, false);
+  assert.equal(service.taskView(taskId)?.threadId, "thread-early");
+
+  pending.resolve({ kind: "completed", output: "done", threadId: "thread-early" });
+  await waitForInteractiveReady(service, taskId);
+  assert.equal(service.taskView(taskId)?.threadId, "thread-early");
+});
+
+test("DSH cannot fabricate an early native thread id", async () => {
+  const pending = deferred<ExecutorResult>();
+  const executor: Executor = {
+    execute: (request) => {
+      assert.equal(request.onThreadStarted, undefined);
+      return pending.promise;
+    }
+  };
+  const service = new RegisteredWorkspaceTaskService(registry(), () => executor);
+  const { taskId } = service.startTask({ workspace_id: "known", instruction: "inspect", executor: "dsh" });
+
+  while (service.taskView(taskId)?.state !== "running") {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  assert.equal(service.taskView(taskId)?.threadId, undefined);
+  pending.resolve({ kind: "completed", output: "done" });
+  await waitForInteractiveReady(service, taskId);
+});
+
+test("legacy controlled-patch taskView retains the native Codex thread id", async () => {
   const executor: Executor = {
     execute: async () => ({ kind: "completed", output: "diff", threadId: "thread-9" })
   };
   const service = new RegisteredWorkspaceTaskService(registry(), () => executor);
-  const { taskId } = service.runTask({ workspace_id: "known", instruction: "inspect" });
+  const { taskId } = service.runTask({ workspace_id: "known", instruction: "inspect", routing: "local_lead" });
   await waitForTerminal(service, taskId);
 
   const view = service.taskView(taskId);
   assert.equal(view?.executor, "codex");
-  assert.equal(view?.threadId, undefined);
+  assert.equal(view?.threadId, "thread-9");
+});
+
+test("control_task interrupt reaches a running legacy controlled-proposal executor and terminalizes it", async () => {
+  let finish!: (result: ExecutorResult) => void;
+  let interrupts = 0;
+  const pending = new Promise<ExecutorResult>((resolve) => { finish = resolve; });
+  const executor: Executor = {
+    execute: () => pending,
+    interrupt: async () => {
+      interrupts += 1;
+      finish({ kind: "interrupted", output: "bounded partial" });
+    }
+  };
+  const service = new RegisteredWorkspaceTaskService(registry(), () => executor);
+  const { taskId } = service.runTask({
+    workspace_id: "known", instruction: "proposal", routing: "local_lead"
+  });
+  while (service.taskView(taskId)?.state !== "running") {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+
+  assert.equal((await service.controlTask(taskId, "interrupt")).state, "running");
+  await waitForTerminal(service, taskId);
+
+  assert.equal(interrupts, 1);
+  assert.equal(service.taskView(taskId)?.state, "failed");
+  assert.equal(service.taskView(taskId)?.partial_output, "bounded partial");
+  await assert.rejects(service.controlTask(taskId, "continue", "retry"), (error) =>
+    error instanceof CoreError && error.code === "INVALID_STATE_TRANSITION");
+  await assert.rejects(service.controlTask(taskId, "accept"), (error) =>
+    error instanceof CoreError && error.code === "INVALID_STATE_TRANSITION");
 });
 
 test("interactive execution remains read-only when workspace writes are allowed", async () => {
@@ -575,7 +970,7 @@ test("interactive execution remains read-only when workspace writes are allowed"
     { id: "known", root: ROOT, allow_write: true }
   ]);
   const service = new RegisteredWorkspaceTaskService(writableRegistry, () => executor);
-  const { taskId } = service.startTask({ workspace_id: "known", instruction: "inspect" });
+  const { taskId } = service.startTask({ workspace_id: "known", instruction: "inspect", routing: "local_lead" });
 
   while (service.taskView(taskId)?.state === "queued" || service.taskView(taskId)?.state === "running") {
     await new Promise<void>((resolve) => setImmediate(resolve));
@@ -598,13 +993,13 @@ test("normalizes and fixes the executor selection for each interactive task", as
     }
   }));
 
-  const omitted = service.startTask({ workspace_id: "known", instruction: "default" });
+  const omitted = service.startTask({ workspace_id: "known", instruction: "default", routing: "local_lead" });
   await waitForInteractiveReady(service, omitted.taskId);
   assert.equal(service.taskView(omitted.taskId)?.review_output, "codex:default");
 
   const explicitCodex = service.startTask({
     workspace_id: "known",
-    instruction: "explicit",
+    instruction: "explicit", routing: "local_lead",
     executor: "codex"
   });
   await waitForInteractiveReady(service, explicitCodex.taskId);
@@ -638,7 +1033,7 @@ test("records an unknown workspace asynchronously without creating an executor",
     factories += 1;
     throw new Error("must not run");
   });
-  const { taskId } = service.runTask({ workspace_id: "unknown", instruction: "inspect" });
+  const { taskId } = service.runTask({ workspace_id: "unknown", instruction: "inspect", routing: "local_lead" });
 
   assert.deepEqual(service.status(taskId), { taskId, state: "queued" });
   await waitForTerminal(service, taskId);
@@ -670,7 +1065,7 @@ test("only exposes supported states", async () => {
   const executor: Executor = { execute: () => pending.promise };
   const service = new RegisteredWorkspaceTaskService(registry(), () => executor);
 
-  const { taskId } = service.runTask({ workspace_id: "known", instruction: "inspect" });
+  const { taskId } = service.runTask({ workspace_id: "known", instruction: "inspect", routing: "local_lead" });
   const states = new Set<string>();
 
   states.add(service.status(taskId)!.state);
@@ -697,20 +1092,20 @@ test("retains only the newest 100 terminal records without evicting live task st
   const queuedTaskId = "00000000-0000-4000-8000-000000000001";
   (service as unknown as { tasks: Map<string, { state: "queued" }> }).tasks.set(queuedTaskId, { state: "queued" });
 
-  const { taskId: runningTaskId } = service.startTask({ workspace_id: "known", instruction: "hold" });
+  const { taskId: runningTaskId } = service.startTask({ workspace_id: "known", instruction: "hold", routing: "local_lead" });
   while (service.taskView(runningTaskId)?.state === "queued") {
     await new Promise<void>((resolve) => setImmediate(resolve));
   }
   assert.equal(service.taskView(runningTaskId)?.state, "running");
 
-  const { taskId: reviewTaskId } = service.startTask({ workspace_id: "known", instruction: "review" });
+  const { taskId: reviewTaskId } = service.startTask({ workspace_id: "known", instruction: "review", routing: "local_lead" });
   while (["queued", "running"].includes(service.taskView(reviewTaskId)?.state ?? "")) {
     await new Promise<void>((resolve) => setImmediate(resolve));
   }
   assert.equal(service.taskView(reviewTaskId)?.state, "waiting_for_supervisor_review");
 
   const legacyTaskIds = Array.from({ length: 101 }, () =>
-    service.runTask({ workspace_id: "known", instruction: "legacy" }).taskId
+    service.runTask({ workspace_id: "known", instruction: "legacy", routing: "local_lead" }).taskId
   );
   await Promise.all(legacyTaskIds.map((taskId) => waitForTerminal(service, taskId)));
   assert.equal(service.status(legacyTaskIds[0]!), undefined);
@@ -721,7 +1116,7 @@ test("retains only the newest 100 terminal records without evicting live task st
 
   const interactiveTaskIds: string[] = [];
   for (let index = 0; index < 101; index += 1) {
-    const { taskId } = service.startTask({ workspace_id: "known", instruction: "interactive" });
+    const { taskId } = service.startTask({ workspace_id: "known", instruction: "interactive", routing: "local_lead" });
     while (["queued", "running"].includes(service.taskView(taskId)?.state ?? "")) {
       await new Promise<void>((resolve) => setImmediate(resolve));
     }

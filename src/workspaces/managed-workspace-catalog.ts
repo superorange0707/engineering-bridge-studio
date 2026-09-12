@@ -1,9 +1,25 @@
-import { readFile, rename, unlink, writeFile } from "node:fs/promises";
-import { isAbsolute, normalize } from "node:path";
+import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { basename, dirname, isAbsolute, join, normalize, sep } from "node:path";
 
 import { CoreError } from "../core/errors.js";
 import { isId, newId } from "../core/ids.js";
+import { applyControlPlaneRegistryWrite } from "./control-plane-transaction.js";
 import type { Id } from "../core/ids.js";
+import {
+  filesystemIdentity,
+  isHighConfidenceFilesystemMatch,
+  isHighConfidenceRepositoryMatch,
+  repositoryIdentity,
+  stableObjectIdentity
+} from "./repository-identity.js";
+import type {
+  FilesystemIdentityEvidence,
+  RepositoryIdentityEvidence,
+  StableObjectIdentityEvidence,
+  WorkspaceType
+} from "./repository-identity.js";
+
+export type WorkspaceSource = "approved" | "managed";
 
 export interface ManagedWorkspaceRecord {
   readonly id: Id;
@@ -11,14 +27,45 @@ export interface ManagedWorkspaceRecord {
   readonly allowWrite: boolean;
 }
 
-const MANAGED_WORKSPACES_VERSION = 1;
+export interface WorkspaceIdentityRecord extends ManagedWorkspaceRecord {
+  readonly displayName: string;
+  readonly aliases: readonly string[];
+  readonly previousPaths: readonly string[];
+  readonly workspaceType: WorkspaceType;
+  readonly filesystem: FilesystemIdentityEvidence;
+  readonly codexProjectReferences: readonly string[];
+  readonly gitTopLevel?: string | undefined;
+  readonly logicalRoot?: string | undefined;
+  readonly repository?: RepositoryIdentityEvidence | undefined;
+  readonly source: WorkspaceSource;
+}
+
+export interface WorkspaceIdentityInput {
+  readonly id?: Id | undefined;
+  readonly displayName?: string | undefined;
+  readonly aliases?: readonly string[] | undefined;
+  readonly workspaceType?: WorkspaceType | undefined;
+  readonly filesystem?: FilesystemIdentityEvidence | undefined;
+  readonly codexProjectReferences?: readonly string[] | undefined;
+  readonly gitTopLevel?: string | undefined;
+  readonly logicalRoot?: string | undefined;
+  readonly repository?: RepositoryIdentityEvidence | undefined;
+  readonly allowWrite?: boolean | undefined;
+  readonly source?: WorkspaceSource | undefined;
+}
+
+const MANAGED_WORKSPACES_VERSION = 3;
 
 export class ManagedWorkspaceCatalog {
-  private records = new Map<string, ManagedWorkspaceRecord>();
+  private records = new Map<string, WorkspaceIdentityRecord>();
+  private roots = new Map<string, string>();
   private mutationQueue: Promise<void> = Promise.resolve();
   private writeSequence = 0;
 
-  constructor(private readonly stateFilePath?: string) {}
+  constructor(
+    private readonly stateFilePath?: string,
+    private readonly projectStateRoot?: string
+  ) {}
 
   async load(): Promise<void> {
     if (this.stateFilePath === undefined) return;
@@ -37,86 +84,162 @@ export class ManagedWorkspaceCatalog {
     } catch {
       throw new CoreError("INTERNAL_ERROR");
     }
-    if (!isObject(value) || value.version !== MANAGED_WORKSPACES_VERSION ||
-        !Array.isArray(value.workspaces)) {
+    if (!isObject(value) || !Array.isArray(value.workspaces) ||
+        (value.version !== 1 && value.version !== 2 && value.version !== MANAGED_WORKSPACES_VERSION)) {
       throw new CoreError("INTERNAL_ERROR");
     }
 
     for (const item of value.workspaces) {
-      if (!isObject(item)) continue;
-      const { id, root, allow_write } = item;
-      if (typeof id !== "string" || !isId(id) ||
-          typeof root !== "string" || root.length === 0 ||
-          !isAbsolute(root) || normalize(root) !== root ||
-          (allow_write !== undefined && typeof allow_write !== "boolean")) {
-        continue; // Skip individually invalid records.
-      }
-      if ([...this.records.values()].some((record) => record.id === id) ||
-          this.records.has(root)) {
-        continue; // Skip duplicate ids or roots.
-      }
-      // Records without allow_write are pre-authorization v1 entries: read-only.
-      this.records.set(root, { id, root, allowWrite: allow_write ?? false });
+      const record = value.version === 1
+        ? parseLegacyRecord(item)
+        : value.version === 2 ? parseV2IdentityRecord(item) : parseIdentityRecord(item);
+      if (record === undefined || this.records.has(record.id) || this.roots.has(record.root)) continue;
+      this.records.set(record.id, record);
+      this.roots.set(record.root, record.id);
     }
   }
 
   entries(): ManagedWorkspaceRecord[] {
+    return [...this.records.values()].map(({ id, root, allowWrite }) => ({ id, root, allowWrite }));
+  }
+
+  identityEntries(): WorkspaceIdentityRecord[] {
     return [...this.records.values()];
   }
 
-  registerOnce(root: string): Promise<{ id: Id; created: boolean }> {
-    const mutation = this.mutationQueue.then(async (): Promise<{ id: Id; created: boolean }> => {
-      const existing = this.records.get(root);
-      if (existing !== undefined) return { id: existing.id, created: false };
-      const id = newId();
-      const snapshot = this.records;
-      this.records = new Map(snapshot);
-      this.records.set(root, { id, root, allowWrite: false });
+  get(workspaceId: string): WorkspaceIdentityRecord | undefined {
+    return this.records.get(workspaceId);
+  }
+
+  registerOnce(
+    root: string,
+    identity?: WorkspaceIdentityInput
+  ): Promise<{ id: Id; created: boolean }> {
+    return this.mutate(async () => {
+      const existingId = this.roots.get(root);
+      if (existingId !== undefined) {
+        const existing = this.records.get(existingId)!;
+        if (identity?.id !== undefined && identity.id !== existingId) {
+          throw new CoreError("WORKSPACE_BOUNDARY_VIOLATION");
+        }
+        if (identity?.source === "approved" && !sameApprovedIdentity(existing, buildRecord(root, identity))) {
+          throw new CoreError("WORKSPACE_BOUNDARY_VIOLATION");
+        }
+        return { id: existingId as Id, created: false };
+      }
+      const record = buildRecord(root, identity);
+      const existing = this.records.get(record.id);
+      if (existing !== undefined) {
+        if (sameApprovedIdentity(existing, record)) return { id: record.id, created: false };
+        throw new CoreError("WORKSPACE_BOUNDARY_VIOLATION");
+      }
+      const snapshot = this.snapshot();
+      this.records.set(record.id, record);
+      this.roots.set(record.root, record.id);
       try {
         await this.persist();
       } catch {
-        this.records = snapshot;
+        this.restore(snapshot);
         throw new CoreError("INTERNAL_ERROR");
       }
-      return { id, created: true };
+      return { id: record.id, created: true };
     });
-    this.mutationQueue = mutation.then(() => undefined, () => undefined);
-    return mutation;
   }
 
-  // Grants persistent controlled-write authorization for one managed workspace.
-  // Runs inside the same mutation queue as registration so concurrent calls are
-  // serialized and idempotent; a persist failure rolls back the in-memory record.
+  rebind(workspaceId: string, root: string, identity: WorkspaceIdentityInput): Promise<WorkspaceIdentityRecord> {
+    return this.mutate(async () => {
+      const existing = this.records.get(workspaceId);
+      if (existing === undefined) throw new CoreError("UNKNOWN_WORKSPACE");
+      const occupied = this.roots.get(root);
+      if (occupied !== undefined && occupied !== workspaceId) {
+        throw new CoreError("WORKSPACE_IDENTITY_AMBIGUOUS");
+      }
+      const candidate = buildRecord(root, { ...identity, id: existing.id });
+      const replacement: WorkspaceIdentityRecord = {
+        ...candidate,
+        displayName: existing.displayName,
+        aliases: sortedUnique([...existing.aliases, ...candidate.aliases]),
+        codexProjectReferences: sortedUnique([
+          ...existing.codexProjectReferences,
+          ...candidate.codexProjectReferences
+        ]),
+        previousPaths: root === existing.root
+          ? existing.previousPaths
+          : sortedUnique([...existing.previousPaths, existing.root]),
+        allowWrite: existing.allowWrite,
+        source: existing.source
+      };
+      validateRecord(replacement);
+      const snapshot = this.snapshot();
+      this.roots.delete(existing.root);
+      this.roots.set(root, workspaceId);
+      this.records.set(workspaceId, replacement);
+      try {
+        await this.persist();
+      } catch {
+        this.restore(snapshot);
+        throw new CoreError("INTERNAL_ERROR");
+      }
+      return replacement;
+    });
+  }
+
+  // Grants persistent controlled-patch APPLY eligibility to one managed workspace.
   authorize(root: string): Promise<void> {
-    const mutation = this.mutationQueue.then(async (): Promise<void> => {
-      const record = this.records.get(root);
-      if (record === undefined) throw new CoreError("INTERNAL_ERROR");
+    return this.mutate(async () => {
+      const id = this.roots.get(root);
+      const record = id === undefined ? undefined : this.records.get(id);
+      if (record === undefined || record.source !== "managed") throw new CoreError("INTERNAL_ERROR");
       if (record.allowWrite) return;
-      const snapshot = this.records;
-      this.records = new Map(snapshot);
-      this.records.set(root, { ...record, allowWrite: true });
+      const snapshot = this.snapshot();
+      this.records.set(record.id, { ...record, allowWrite: true });
       try {
         await this.persist();
       } catch {
-        this.records = snapshot;
+        this.restore(snapshot);
         throw new CoreError("INTERNAL_ERROR");
       }
     });
+  }
+
+  private mutate<T>(operation: () => Promise<T>): Promise<T> {
+    const mutation = this.mutationQueue.then(operation);
     this.mutationQueue = mutation.then(() => undefined, () => undefined);
     return mutation;
   }
 
-  private persist(): Promise<void> {
-    if (this.stateFilePath === undefined) return Promise.resolve();
+  private snapshot(): { records: Map<string, WorkspaceIdentityRecord>; roots: Map<string, string> } {
+    return { records: new Map(this.records), roots: new Map(this.roots) };
+  }
+
+  private restore(snapshot: { records: Map<string, WorkspaceIdentityRecord>; roots: Map<string, string> }): void {
+    this.records = snapshot.records;
+    this.roots = snapshot.roots;
+  }
+
+  private async persist(): Promise<void> {
+    if (this.stateFilePath === undefined) return;
+    await mkdir(dirname(this.stateFilePath), { recursive: true, mode: 0o700 });
+    if (this.projectStateRoot !== undefined) {
+      await Promise.all([...this.records.keys()].map((id) =>
+        mkdir(join(this.projectStateRoot!, id), { recursive: true, mode: 0o700 })));
+    }
     const contents = `${JSON.stringify({
       version: MANAGED_WORKSPACES_VERSION,
-      workspaces: [...this.records.values()].map(({ id, root, allowWrite }) => ({
-        id,
-        root,
-        allow_write: allowWrite
-      }))
+      workspaces: [...this.records.values()].map(serializeRecord)
     }, null, 2)}\n`;
-    return this.writeStateFile(contents);
+    if (this.projectStateRoot === undefined) {
+      await this.writeStateFile(contents);
+    } else {
+      if (this.stateFilePath !== join(this.projectStateRoot, "workspace-registry.json")) {
+        throw new CoreError("INTERNAL_ERROR");
+      }
+      await applyControlPlaneRegistryWrite(
+        this.projectStateRoot,
+        Buffer.from(contents),
+        () => this.writeStateFile(contents)
+      );
+    }
   }
 
   private async writeStateFile(contents: string): Promise<void> {
@@ -130,6 +253,300 @@ export class ManagedWorkspaceCatalog {
       throw new CoreError("INTERNAL_ERROR");
     }
   }
+}
+
+function buildRecord(root: string, input: WorkspaceIdentityInput = {}): WorkspaceIdentityRecord {
+  const workspaceType = input.workspaceType ??
+    (input.gitTopLevel === undefined ? "directory_workspace" : "git_workspace");
+  const record: WorkspaceIdentityRecord = {
+    id: input.id ?? newId(),
+    root,
+    displayName: input.displayName ?? (basename(root) || "workspace"),
+    aliases: sortedUnique(input.aliases ?? []),
+    previousPaths: [],
+    workspaceType,
+    filesystem: input.filesystem ?? filesystemIdentity(),
+    codexProjectReferences: sortedUnique(input.codexProjectReferences ?? []),
+    ...(workspaceType === "git_workspace"
+      ? {
+          gitTopLevel: input.gitTopLevel ?? root,
+          logicalRoot: input.logicalRoot ?? ".",
+          repository: input.repository ?? repositoryIdentity("unknown", [], [])
+        }
+      : {}),
+    allowWrite: input.allowWrite ?? false,
+    source: input.source ?? "managed"
+  };
+  validateRecord(record);
+  return record;
+}
+
+function parseLegacyRecord(value: unknown): WorkspaceIdentityRecord | undefined {
+  if (!isObject(value)) return undefined;
+  const { id, root, allow_write } = value;
+  if (typeof id !== "string" || !isId(id) || typeof root !== "string" ||
+      (allow_write !== undefined && typeof allow_write !== "boolean")) return undefined;
+  try {
+    return buildRecord(root, {
+      id,
+      allowWrite: allow_write ?? false,
+      source: "managed"
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+function parseV2IdentityRecord(value: unknown): WorkspaceIdentityRecord | undefined {
+  if (!isObject(value) || !isObject(value.repository_identity) || !isObject(value.permission_policy)) {
+    return undefined;
+  }
+  const record: WorkspaceIdentityRecord = {
+    id: value.workspace_id as Id,
+    root: value.current_path as string,
+    displayName: value.display_name as string,
+    aliases: value.aliases as string[],
+    previousPaths: value.previous_paths as string[],
+    workspaceType: "git_workspace",
+    filesystem: filesystemIdentity(),
+    codexProjectReferences: [],
+    gitTopLevel: value.git_top_level as string,
+    logicalRoot: value.logical_root as string,
+    repository: {
+      fingerprint: value.repository_identity.fingerprint as string,
+      ...(typeof value.repository_identity.local_metadata_id === "string"
+        ? { localMetadataId: value.repository_identity.local_metadata_id }
+        : {}),
+      objectFormat: value.repository_identity.object_format as string,
+      normalizedRemotes: value.repository_identity.normalized_remotes as string[],
+      rootCommits: value.repository_identity.root_commits as string[]
+    },
+    allowWrite: value.permission_policy.allow_write as boolean,
+    source: value.source as WorkspaceSource
+  };
+  try {
+    validateRecord(record);
+    return record;
+  } catch {
+    return undefined;
+  }
+}
+
+function parseIdentityRecord(value: unknown): WorkspaceIdentityRecord | undefined {
+  if (!isObject(value) || !isObject(value.filesystem_identity) || !isObject(value.permission_policy)) {
+    return undefined;
+  }
+  const gitIdentity = isObject(value.git_identity) ? value.git_identity : undefined;
+  const repositoryIdentityValue = gitIdentity !== undefined && isObject(gitIdentity.repository_identity)
+    ? gitIdentity.repository_identity
+    : undefined;
+  const filesystemStableObjectIdentity = parseStableObjectIdentity(
+    value.filesystem_identity.stable_object_identity
+  );
+  const repositoryStableObjectIdentity = parseStableObjectIdentity(
+    repositoryIdentityValue?.stable_object_identity
+  );
+  if ((value.filesystem_identity.stable_object_identity !== undefined &&
+       filesystemStableObjectIdentity === undefined) ||
+      (repositoryIdentityValue?.stable_object_identity !== undefined &&
+       repositoryStableObjectIdentity === undefined)) return undefined;
+  const workspaceType = value.workspace_type as WorkspaceType;
+  const record: WorkspaceIdentityRecord = {
+    id: value.workspace_id as Id,
+    root: value.current_path as string,
+    displayName: value.display_name as string,
+    aliases: value.aliases as string[],
+    previousPaths: value.previous_paths as string[],
+    workspaceType,
+    filesystem: {
+      fingerprint: value.filesystem_identity.fingerprint as string,
+      ...(typeof value.filesystem_identity.local_metadata_id === "string"
+        ? { localMetadataId: value.filesystem_identity.local_metadata_id }
+        : {}),
+      ...(filesystemStableObjectIdentity === undefined
+        ? {}
+        : { stableObjectIdentity: filesystemStableObjectIdentity })
+    },
+    codexProjectReferences: value.codex_project_references as string[],
+    ...(workspaceType === "git_workspace" && gitIdentity !== undefined &&
+        repositoryIdentityValue !== undefined
+      ? {
+          gitTopLevel: gitIdentity.git_top_level as string,
+          logicalRoot: gitIdentity.logical_root as string,
+          repository: {
+            fingerprint: repositoryIdentityValue.fingerprint as string,
+            ...(typeof repositoryIdentityValue.local_metadata_id === "string"
+              ? { localMetadataId: repositoryIdentityValue.local_metadata_id }
+              : {}),
+            ...(repositoryStableObjectIdentity === undefined
+              ? {}
+              : { stableObjectIdentity: repositoryStableObjectIdentity }),
+            objectFormat: repositoryIdentityValue.object_format as string,
+            normalizedRemotes: repositoryIdentityValue.normalized_remotes as string[],
+            rootCommits: repositoryIdentityValue.root_commits as string[]
+          }
+        }
+      : {}),
+    allowWrite: value.permission_policy.allow_write as boolean,
+    source: value.source as WorkspaceSource
+  };
+  try {
+    validateRecord(record);
+    return record;
+  } catch {
+    return undefined;
+  }
+}
+
+function validateRecord(record: WorkspaceIdentityRecord): void {
+  const gitFieldCount = [record.gitTopLevel, record.logicalRoot, record.repository]
+    .filter((value) => value !== undefined).length;
+  const gitComplete = record.gitTopLevel !== undefined && record.logicalRoot !== undefined &&
+    record.repository !== undefined;
+  if (!isId(record.id) || !isNormalizedAbsolute(record.root) ||
+      typeof record.displayName !== "string" || record.displayName.length === 0 ||
+      !isPathList(record.aliases) || !isPathList(record.previousPaths) ||
+      !isPathList(record.codexProjectReferences) ||
+      (record.source !== "approved" && record.source !== "managed") ||
+      typeof record.allowWrite !== "boolean" ||
+      !/^[0-9a-f]{64}$/.test(record.filesystem.fingerprint) ||
+      (record.filesystem.localMetadataId !== undefined &&
+       !/^[0-9a-f]{64}$/.test(record.filesystem.localMetadataId)) ||
+      !isStableObjectIdentity(record.filesystem.stableObjectIdentity) ||
+      (gitFieldCount !== 0 && gitFieldCount !== 3) ||
+      (record.workspaceType === "directory_workspace" && gitComplete) ||
+      (record.workspaceType === "git_workspace" && !gitComplete) ||
+      (gitComplete && (!isNormalizedAbsolute(record.gitTopLevel!) ||
+        !isLogicalRoot(record.logicalRoot!) ||
+        normalize(join(record.gitTopLevel!, record.logicalRoot!)) !== record.root ||
+        !/^[0-9a-f]{64}$/.test(record.repository!.fingerprint) ||
+        (record.repository!.localMetadataId !== undefined &&
+         !/^[0-9a-f]{64}$/.test(record.repository!.localMetadataId)) ||
+        !isStableObjectIdentity(record.repository!.stableObjectIdentity) ||
+        typeof record.repository!.objectFormat !== "string" ||
+        record.repository!.objectFormat.length === 0 ||
+        !isStringList(record.repository!.normalizedRemotes) ||
+        !isStringList(record.repository!.rootCommits)))) {
+    throw new CoreError("WORKSPACE_BOUNDARY_VIOLATION");
+  }
+}
+
+function serializeRecord(record: WorkspaceIdentityRecord): Record<string, unknown> {
+  return {
+    workspace_id: record.id,
+    display_name: record.displayName,
+    aliases: record.aliases,
+    current_path: record.root,
+    previous_paths: record.previousPaths,
+    workspace_type: record.workspaceType,
+    filesystem_identity: {
+      fingerprint: record.filesystem.fingerprint,
+      ...(record.filesystem.localMetadataId === undefined
+        ? {}
+        : { local_metadata_id: record.filesystem.localMetadataId }),
+      ...(record.filesystem.stableObjectIdentity === undefined
+        ? {}
+        : { stable_object_identity: serializeStableObjectIdentity(record.filesystem.stableObjectIdentity) })
+    },
+    codex_project_references: record.codexProjectReferences,
+    ...(record.workspaceType === "git_workspace"
+      ? { git_identity: {
+          git_top_level: record.gitTopLevel,
+          logical_root: record.logicalRoot,
+          repository_identity: {
+            fingerprint: record.repository!.fingerprint,
+            ...(record.repository!.localMetadataId === undefined
+              ? {}
+              : { local_metadata_id: record.repository!.localMetadataId }),
+            ...(record.repository!.stableObjectIdentity === undefined
+              ? {}
+              : {
+                  stable_object_identity: serializeStableObjectIdentity(
+                    record.repository!.stableObjectIdentity
+                  )
+                }),
+            object_format: record.repository!.objectFormat,
+            normalized_remotes: record.repository!.normalizedRemotes,
+            root_commits: record.repository!.rootCommits
+          }
+        } }
+      : {}),
+    permission_policy: { allow_write: record.allowWrite },
+    source: record.source
+  };
+}
+
+function sameApprovedIdentity(left: WorkspaceIdentityRecord, right: WorkspaceIdentityRecord): boolean {
+  if (left.source !== "approved" || right.source !== "approved" || left.allowWrite !== right.allowWrite) {
+    return false;
+  }
+  if (left.filesystem.stableObjectIdentity !== undefined || right.filesystem.stableObjectIdentity !== undefined) {
+    return isHighConfidenceFilesystemMatch(left.filesystem, right.filesystem);
+  }
+  if (isHighConfidenceFilesystemMatch(left.filesystem, right.filesystem)) return true;
+  return left.workspaceType === "git_workspace" && right.workspaceType === "git_workspace" &&
+    left.logicalRoot === right.logicalRoot &&
+    isHighConfidenceRepositoryMatch(left.repository!, right.repository!);
+}
+
+function isNormalizedAbsolute(path: string): boolean {
+  return typeof path === "string" && path.length > 0 && isAbsolute(path) && normalize(path) === path;
+}
+
+function isLogicalRoot(path: string): boolean {
+  return typeof path === "string" && path.length > 0 && !isAbsolute(path) &&
+    normalize(path) === path && path !== ".." && !path.startsWith(`..${sep}`);
+}
+
+function isPathList(value: readonly string[]): boolean {
+  return Array.isArray(value) && value.every(isNormalizedAbsolute) && new Set(value).size === value.length;
+}
+
+function isStringList(value: readonly string[]): boolean {
+  return Array.isArray(value) && value.every((item) => typeof item === "string" && item.length > 0) &&
+    new Set(value).size === value.length;
+}
+
+function parseStableObjectIdentity(value: unknown): StableObjectIdentityEvidence | undefined {
+  if (!isObject(value) || value.version !== 2 || typeof value.id !== "string" ||
+      typeof value.inode !== "string" || typeof value.birthtime_ns !== "string" ||
+      typeof value.device_observation !== "string") return undefined;
+  return {
+    version: 2,
+    id: value.id,
+    inode: value.inode,
+    birthtimeNs: value.birthtime_ns,
+    deviceObservation: value.device_observation
+  };
+}
+
+function serializeStableObjectIdentity(
+  identity: StableObjectIdentityEvidence
+): Record<string, unknown> {
+  return {
+    version: identity.version,
+    id: identity.id,
+    inode: identity.inode,
+    birthtime_ns: identity.birthtimeNs,
+    device_observation: identity.deviceObservation
+  };
+}
+
+function isStableObjectIdentity(identity: StableObjectIdentityEvidence | undefined): boolean {
+  if (identity === undefined) return true;
+  try {
+    return identity.version === 2 && identity.id === stableObjectIdentity(
+      identity.inode,
+      identity.birthtimeNs,
+      identity.deviceObservation
+    ).id;
+  } catch {
+    return false;
+  }
+}
+
+function sortedUnique(values: readonly string[]): string[] {
+  return [...new Set(values)].sort();
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
