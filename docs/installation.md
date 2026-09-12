@@ -62,7 +62,7 @@ For the pinned v5.0.6 Launcher, complete these controls in order:
 
 1. Sign in, run its browser smoke test, and press **Install models**. Restart Codex and check that a **ChatGPT Web** model is available.
 2. Open the Launcher's **MCP** page. Use its links to create a separate Tunnel and runtime API key in your own OpenAI account, then enter those values in the Launcher and select **Connect harness**.
-3. In ChatGPT's developer-mode app settings, create a **Tunnel** connector for that tunnel, named exactly **Codex Native2**. Follow the Launcher's authentication and action-permission settings after reviewing the local tools you are enabling. Account and workspace policy must permit those actions.
+3. In ChatGPT's developer-mode app settings, create a **Tunnel** connector for that tunnel, named exactly **Codex Native2**. The pinned upstream setup requires **Authentication: None** and **Allow all actions**; review the local tools before granting these permissions. The authenticated tunnel transport and Codex's own execution boundaries remain separate controls. Account and workspace policy must permit those actions.
 4. Run **Verify runtime** in the Launcher, then start a new Codex task with a Web model and the Engineering Bridge plugin enabled. Continue with the acceptance sequence below.
 
 The [pinned upstream setup guide](https://github.com/miuuyy/codex-chatgpt-web/blob/e85e3693fdb4e3e033348c08df0298c20fcdb612/README.md#full-harness) and [walkthroughs](https://github.com/miuuyy/codex-chatgpt-web/blob/e85e3693fdb4e3e033348c08df0298c20fcdb612/TROUBLESHOOTING.md) describe those controls. The release installer does not create an account, grant connector permissions, or complete this account-dependent setup. Availability follows your actual account and workspace controls; consult [OpenAI's current developer-mode requirements](https://help.openai.com/en/articles/12584461-developer-mode-and-mcp-apps-in-chatgpt).
@@ -78,12 +78,13 @@ brew install openai/tools/tunnel-client
 tunnel-client help quickstart
 ```
 
-Create a new profile using your own tunnel ID and absolute paths. Replace all placeholders; quote paths containing spaces inside the MCP command. Choose an unused loopback health port if 8080 is occupied.
+Create a new profile using your own tunnel ID and absolute paths. Replace all placeholders; quote paths containing spaces inside the MCP command. The example selects health port 8081 to avoid the default 8080; choose another unused loopback port if necessary.
 
 ```sh
 tunnel-client init --sample sample_mcp_stdio_local \
   --profile engineering-bridge-studio \
   --tunnel-id YOUR_TUNNEL_ID \
+  --health-listen-addr 127.0.0.1:8081 \
   --mcp-command '/absolute/path/to/node /absolute/path/to/plugins/engineering-bridge/dist/src/mcp-stdio.js /absolute/path/to/stack/config/workspaces.json'
 tunnel-client doctor --profile engineering-bridge-studio --explain
 tunnel-client run --profile engineering-bridge-studio
