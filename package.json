@@ -1,12 +1,13 @@
 {
   "name": "engineering-bridge-studio",
-  "version": "2.0.0-beta.1",
+  "version": "2.0.0-beta.2",
   "description": "ChatGPT Web planning and writing with isolated native Codex execution, shared Bridge state, and reproducible research evidence.",
   "type": "module",
   "files": [
     ".codex-plugin/**",
     ".mcp.json",
     "bin/*.mjs",
+    "assets/studio/**",
     "dist/src/**",
     "config/workspaces.example.json",
     "config/web-companion.lock.json",

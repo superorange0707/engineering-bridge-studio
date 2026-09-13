@@ -29,3 +29,10 @@ The CI and release workflows run the complete automated suite with Node.js 22. C
 ## Account-dependent acceptance
 
 The native execution test above uses two local MCP sessions. It does not certify ChatGPT Web model routing, a full-mode remote connector, or access to every ChatGPT product feature from Codex. Follow the two-entrance acceptance in [the installation guide](installation.md) after signing in through the Launcher. Browser-only login, a healthy port or a successful local test must not be reported as that full Web round trip.
+
+
+## Studio beta.2 acceptance
+
+The macOS Studio workflow was exercised through the Codex in-app browser: first-use project setup, explicit project selection, an engineering contract, and native Codex execution. The executor created `verification.mjs`, ran it, returned `metrics.json` with `sum: 55`, and recorded stdout and exit status in `run.log`. All three returned artifacts passed SHA-256 checks, and the declared input remained unchanged.
+
+Focused tests cover empty-configuration MCP startup, setup activation, authenticated localhost routes, cross-origin rejection, tool allowlisting, read-only sessions, durable project research links, idle lifetime renewal, and release installation. Studio process checks also verify reuse and separation of read-only instances.

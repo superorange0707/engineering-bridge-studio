@@ -10,11 +10,11 @@ import { Readable } from "node:stream";
 import { parseArgs } from "node:util";
 
 export const RELEASE = Object.freeze({
-  version: "2.0.0-beta.1",
-  directory: "engineering-bridge-studio-2.0.0-beta.1",
-  archiveName: "engineering-bridge-studio-2.0.0-beta.1.tar.gz",
-  archiveUrl: "https://github.com/superorange0707/engineering-bridge-studio/releases/download/v2.0.0-beta.1/engineering-bridge-studio-2.0.0-beta.1.tar.gz",
-  sha256: "fbe1f64eb806e757f9edc0b505a74bbef0031d5093eb8624361c45947ea77b64",
+  version: "2.0.0-beta.2",
+  directory: "engineering-bridge-studio-2.0.0-beta.2",
+  archiveName: "engineering-bridge-studio-2.0.0-beta.2.tar.gz",
+  archiveUrl: "https://github.com/superorange0707/engineering-bridge-studio/releases/download/v2.0.0-beta.2/engineering-bridge-studio-2.0.0-beta.2.tar.gz",
+  sha256: "7f1fa43eca95a98a62f1060274d31bcbf5a5d7e3496e64e5c17ab2717b66b524",
 });
 
 const MARKETPLACE_NAME = "engineering-bridge-studio";
@@ -37,6 +37,12 @@ const REQUIRED_RELEASE_FILES = [
   "plugins/engineering-bridge/.codex-plugin/plugin.json",
   "plugins/engineering-bridge/.mcp.json",
   "plugins/engineering-bridge/bin/plugin-launcher.mjs",
+  "plugins/engineering-bridge/bin/studio-mcp.mjs",
+  "plugins/engineering-bridge/bin/studio-process.mjs",
+  "plugins/engineering-bridge/bin/studio-server.mjs",
+  "plugins/engineering-bridge/assets/studio/index.html",
+  "plugins/engineering-bridge/assets/studio/app.js",
+  "plugins/engineering-bridge/assets/studio/style.css",
   "plugins/engineering-bridge/dist/src/mcp-stdio.js",
   "plugins/engineering-bridge/node_modules/zod/package.json",
   "plugins/engineering-bridge/node_modules/@modelcontextprotocol/sdk/package.json",
@@ -312,7 +318,7 @@ export async function installRelease(options = {}) {
     marketplace: MARKETPLACE_NAME,
     marketplace_deeplink: marketplaceDeepLink,
     reused_existing: reusedExisting,
-    next: "https://github.com/superorange0707/engineering-bridge-studio/blob/main/docs/installation.md#2-choose-a-project",
+    next: "Open Engineering Bridge Studio in Codex to choose a project and finish setup.",
   };
 }
 
@@ -328,7 +334,7 @@ export function parseInstallerArgs(args) {
 }
 
 function helpText() {
-  return `Engineering Bridge Studio verified release installer\n\nUsage:\n  curl -fsSL https://raw.githubusercontent.com/superorange0707/engineering-bridge-studio/main/install.mjs | node --input-type=module -\n  node install.mjs [--json]\n\nDownloads the pinned ${RELEASE.version} release, verifies SHA-256 before extraction,\npreserves an existing matching installation, and registers the local Codex marketplace.\nNext, choose a project and connect ChatGPT Web using the installation guide.\n`;
+  return `Engineering Bridge Studio verified release installer\n\nUsage:\n  curl -fsSL https://raw.githubusercontent.com/superorange0707/engineering-bridge-studio/main/install.mjs | node --input-type=module -\n  node install.mjs [--json]\n\nDownloads the pinned ${RELEASE.version} release, verifies SHA-256 before extraction,\npreserves an existing matching installation, and registers the local Codex marketplace.\nOpens Studio for project setup and the ChatGPT Web connection steps.\n`;
 }
 
 function assertPrerequisites(platform, nodeVersion) {
@@ -349,8 +355,15 @@ async function main() {
     return;
   }
   process.stdout.write(`Installed Engineering Bridge Studio ${result.version}${result.reused_existing ? " (existing installation preserved)" : ""}.\n`);
-  process.stdout.write("Choose a project, then restart Codex and open Plugins → Installed.\n");
-  process.stdout.write(`Project setup: ${result.next}\n`);
+  try {
+    const studio = JSON.parse(invoke(defaultProcessRunner, process.execPath,
+      [join(result.release_root, "plugins", "engineering-bridge", "bin", "bridge.mjs"), "open", "--json"], "Studio startup"));
+    invoke(defaultProcessRunner, "open", [studio.url], "Opening Studio");
+    process.stdout.write("Studio is open. Choose a project and follow the setup steps.\n");
+  } catch {
+    process.stdout.write("Open Codex → Plugins → Engineering Bridge Studio → Open Studio to finish setup.\n");
+  }
+  process.stdout.write("In Codex, ask: Open Engineering Bridge Studio.\n");
   process.stdout.write(`Open plugin: ${result.marketplace_deeplink}\n`);
 }
 

@@ -9,14 +9,25 @@
 Available for macOS. Install Node.js 22+, Git and the Codex CLI, then sign in to Codex.
 
 ```sh
+codex plugin marketplace add superorange0707/engineering-bridge-studio --ref marketplace
+codex plugin add engineering-bridge@engineering-bridge-studio
+```
+
+Open the plugin in Codex and choose **“Open Engineering Bridge Studio”**. Studio opens in the current task's browser panel and guides you through project setup. Use a new task after installing so Codex loads the plugin's tools.
+
+For an installer that also opens Studio in your browser:
+
+```sh
 curl -fsSL https://raw.githubusercontent.com/superorange0707/engineering-bridge-studio/main/install.mjs | node --input-type=module -
 ```
 
-The installer downloads the release, checks its SHA-256 and installs the plugin in Codex. Restart the app, open **Plugins → Installed**, and look for **Engineering Bridge Studio**. The [installation guide](docs/installation.md) covers choosing a project and connecting ChatGPT Web.
-
-The plugin is available through this installer and [GitHub Releases](https://github.com/superorange0707/engineering-bridge-studio/releases). Public Codex directory review is a separate publishing step.
+The ready-to-run plugin is published through this repository's marketplace and [GitHub Releases](https://github.com/superorange0707/engineering-bridge-studio/releases). A listing in the public Codex directory still requires submission and review.
 
 ## How it works
+
+Studio includes project setup, a research handoff, an experiment editor, live run status, artifact downloads and review decisions. The interface is available in English and Chinese. A fresh installation opens setup immediately; an existing installation keeps its projects and experiment history.
+
+Use **Research** to link a ChatGPT conversation and prepare its project brief. Use **Experiments** to send a concrete plan to native Codex and inspect its results. ChatGPT opens in its own browser tab. Once its Bridge connector is configured, it can submit plans and read results directly; the copy actions also work for manual handoffs.
 
 Engineering Bridge Studio connects ChatGPT Web planning with local native Codex execution around one project.
 

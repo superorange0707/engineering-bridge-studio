@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f6f8fb">
+  <meta name="description" content="Engineering Bridge Studio — plan with ChatGPT Web, execute with native Codex, review the evidence.">
+  <title>Engineering Bridge Studio</title>
+  <link rel="stylesheet" href="/assets/studio/style.css">
+  <script src="/assets/studio/app.js" defer></script>
+</head>
+<body>
+  <div id="app-shell">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Engineering Bridge Studio home">
+        <span class="brand-mark" aria-hidden="true">EB</span>
+        <span class="brand-name">Engineering Bridge <span class="brand-tag" data-i18n="brand.studio">STUDIO</span></span>
+      </a>
+      <div class="topbar-actions">
+        <div class="connection-state" id="connection-state" role="status" aria-live="polite">
+          <span class="status-dot" id="connection-dot" aria-hidden="true"></span>
+          <span id="connection-label" data-i18n="status.checking">Checking connection…</span>
+        </div>
+        <button class="icon-button" id="refresh-button" type="button" data-i18n-aria="actions.refresh" aria-label="Refresh status" title="Refresh status">
+          <span aria-hidden="true">↻</span>
+        </button>
+        <button class="language-button" id="language-toggle" type="button">中文</button>
+      </div>
+    </header>
+
+    <div class="app-layout">
+      <aside class="sidebar" aria-label="Workspace navigation">
+        <div class="sidebar-section workspace-section">
+          <div class="section-kicker" data-i18n="workspace.kicker">WORKSPACE</div>
+          <label class="field-label" for="project-select" data-i18n="workspace.label">Project</label>
+          <select id="project-select" class="project-select" disabled>
+            <option value="" data-i18n="workspace.choose">Choose a project</option>
+          </select>
+          <p class="project-path" id="project-path" data-i18n="workspace.none">Choose a project to begin.</p>
+        </div>
+
+        <nav class="primary-nav" aria-label="Primary">
+          <button class="nav-item is-active" type="button" data-view="overview" aria-current="page">
+            <span class="nav-icon" aria-hidden="true">⌂</span>
+            <span data-i18n="nav.overview">Overview</span>
+          </button>
+          <button class="nav-item" type="button" data-view="research">
+            <span class="nav-icon" aria-hidden="true">◎</span>
+            <span data-i18n="nav.research">Research handoff</span>
+          </button>
+          <button class="nav-item" type="button" data-view="experiments">
+            <span class="nav-icon" aria-hidden="true">⌁</span>
+            <span data-i18n="nav.experiments">Experiments</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-spacer"></div>
+
+        <div class="sidebar-section companion-section">
+          <div class="companion-card" id="companion-card">
+            <div class="companion-icon" aria-hidden="true">W</div>
+            <div class="companion-copy">
+              <div class="companion-title" data-i18n="companion.title">ChatGPT Web companion</div>
+              <div class="companion-status" id="companion-status" data-i18n="companion.checking">Checking…</div>
+            </div>
+          </div>
+          <div class="companion-actions">
+            <button class="text-button" id="companion-install" type="button" data-i18n="companion.install">Install</button>
+            <button class="text-button" id="companion-launch" type="button" data-i18n="companion.launch">Open Launcher</button>
+          </div>
+        </div>
+
+        <button class="setup-link" id="setup-link" type="button">
+          <span aria-hidden="true">＋</span>
+          <span data-i18n="sidebar.setup">Connection setup</span>
+        </button>
+        <div class="sidebar-footer">Engineering Bridge <span data-i18n="brand.studio">STUDIO</span></div>
+      </aside>
+
+      <main class="main-content">
+        <div class="page-error" id="page-error" role="alert" hidden>
+          <span class="alert-icon" aria-hidden="true">!</span>
+          <span id="page-error-text"></span>
+          <button class="icon-button small" id="dismiss-error" type="button" data-i18n-aria="actions.dismiss" aria-label="Dismiss">×</button>
+        </div>
+        <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+        <section class="view setup-view" id="setup-view" hidden>
+          <div class="setup-shell">
+            <div class="eyebrow" data-i18n="setup.eyebrow">FIRST CONNECTION</div>
+            <h1 data-i18n="setup.title">Choose where your Bridge work should live.</h1>
+            <p class="lead" data-i18n="setup.lede">Start with a project, or pick up an existing workspace.</p>
+
+            <div class="setup-mode" role="radiogroup" aria-label="Setup mode">
+              <label class="mode-card is-selected" id="mode-create-card">
+                <input type="radio" name="setup-mode" value="create" checked>
+                <span class="mode-card-body">
+                  <span class="mode-card-title" data-i18n="setup.create">Create a local stack</span>
+                  <span class="mode-card-copy" data-i18n="setup.createCopy">Use one explicit project as the starting workspace.</span>
+                </span>
+              </label>
+              <label class="mode-card" id="mode-connect-card">
+                <input type="radio" name="setup-mode" value="connect">
+                <span class="mode-card-body">
+                  <span class="mode-card-title" data-i18n="setup.connect">Connect an existing stack</span>
+                  <span class="mode-card-copy" data-i18n="setup.connectCopy">Reuse its configuration, runs and review history.</span>
+                </span>
+              </label>
+            </div>
+
+            <form class="setup-form" id="setup-form" novalidate>
+              <div id="setup-create-fields">
+                <label class="form-field" for="setup-project-path">
+                  <span data-i18n="setup.projectPath">Absolute project path</span>
+                  <input id="setup-project-path" name="project_path" type="text" autocomplete="off" spellcheck="false" placeholder="/Users/you/Projects/my-project" data-i18n-placeholder="setup.projectPlaceholder">
+                  <small data-i18n="setup.projectHelp">Choose the source project explicitly. The folder is not modified by setup.</small>
+                </label>
+                <label class="check-row" for="setup-experiments">
+                  <input id="setup-experiments" name="experiments" type="checkbox">
+                  <span>
+                    <strong data-i18n="setup.experiments">Enable isolated experiments</strong>
+                    <small data-i18n="setup.experimentsHelp">Allow collaboration runs to write only inside their private scratch directories.</small>
+                  </span>
+                </label>
+              </div>
+              <div id="setup-connect-fields" hidden>
+                <label class="form-field" for="setup-config-path">
+                  <span data-i18n="setup.configPath">Existing workspaces.json path</span>
+                  <input id="setup-config-path" name="config_path" type="text" autocomplete="off" spellcheck="false" placeholder="/Users/you/.local/share/engineering-bridge/config/workspaces.json" data-i18n-placeholder="setup.configPlaceholder">
+                  <small data-i18n="setup.configHelp">Bridge will use this stack in place and keep its existing history.</small>
+                </label>
+              </div>
+              <div class="form-error" id="setup-form-error" role="alert" hidden></div>
+              <button class="primary-button wide" id="setup-submit" type="submit" data-i18n="setup.continue">Continue to project selection</button>
+            </form>
+          </div>
+        </section>
+
+        <section class="view" id="overview-view" hidden>
+          <div class="page-heading hero-heading">
+            <div>
+              <div class="eyebrow" data-i18n="overview.eyebrow">ENGINEERING BRIDGE STUDIO</div>
+              <h1 data-i18n="overview.title">A clear path from idea to evidence.</h1>
+              <p class="lead" data-i18n="overview.lede">Plan and write with ChatGPT Web. Run the work with native Codex. Keep every round attached to the project.</p>
+            </div>
+            <div class="heading-actions">
+              <button class="secondary-button" id="overview-open-chat" type="button" data-i18n="handoff.openChat">Open ChatGPT</button>
+              <button class="primary-button" id="overview-new-experiment" type="button" data-i18n="overview.newExperiment">New experiment</button>
+            </div>
+          </div>
+
+          <div class="project-banner" id="project-banner" hidden>
+            <div class="project-avatar" id="project-avatar" aria-hidden="true">—</div>
+            <div class="project-banner-copy">
+              <div class="project-banner-label" data-i18n="overview.activeProject">ACTIVE PROJECT</div>
+              <div class="project-banner-name" id="project-name">—</div>
+              <div class="project-banner-path" id="project-banner-path">—</div>
+            </div>
+            <div class="project-banner-status" id="project-execution-status">—</div>
+          </div>
+
+          <div class="empty-project card" id="overview-empty" hidden>
+            <div class="empty-icon" aria-hidden="true">◎</div>
+            <h2 data-i18n="project.emptyTitle">Choose a project to open the workbench.</h2>
+            <p data-i18n="project.emptyCopy">Select a project to see its experiments and continue the work.</p>
+            <button class="secondary-button" id="overview-choose-project" type="button" data-i18n="project.choose">Choose project</button>
+          </div>
+
+          <div class="stats-grid" id="overview-stats" hidden>
+            <div class="stat-card">
+              <div class="stat-label" data-i18n="stats.rounds">RESEARCH ROUNDS</div>
+              <div class="stat-value" id="stat-rounds">—</div>
+              <div class="stat-note" id="stat-rounds-note">—</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label" data-i18n="stats.execution">EXECUTION</div>
+              <div class="stat-value stat-value-small" id="stat-execution">—</div>
+              <div class="stat-note" id="stat-execution-note">—</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label" data-i18n="stats.web">WEB CONNECTION</div>
+              <div class="stat-value stat-value-small" id="stat-web">—</div>
+              <div class="stat-note" id="stat-web-note">—</div>
+            </div>
+          </div>
+
+          <div class="overview-grid" id="overview-content" hidden>
+            <article class="card handoff-card compact-card">
+              <div class="card-heading-row">
+                <div>
+                  <div class="card-kicker" data-i18n="handoff.kicker">RESEARCH HANDOFF</div>
+                  <h2 data-i18n="handoff.title">Keep Web thinking tied to this workspace.</h2>
+                </div>
+                <span class="card-symbol" aria-hidden="true">↗</span>
+              </div>
+              <p data-i18n="handoff.copy">Save a ChatGPT conversation for this project, then copy a ready brief with the workspace ID and Bridge tool sequence.</p>
+              <button class="secondary-button" id="overview-open-research" type="button" data-i18n="handoff.manage">Manage handoff</button>
+            </article>
+            <article class="card loop-card compact-card">
+              <div class="card-kicker" data-i18n="loop.kicker">THE LOOP</div>
+              <h2 data-i18n="loop.title">Think → run → review → write.</h2>
+              <div class="loop-steps">
+                <div><span>01</span><strong data-i18n="loop.plan">Plan a question</strong></div>
+                <div><span>02</span><strong data-i18n="loop.run">Run a bounded round</strong></div>
+                <div><span>03</span><strong data-i18n="loop.review">Review real artifacts</strong></div>
+              </div>
+            </article>
+          </div>
+
+          <section class="card recent-card" id="overview-recent" hidden>
+            <div class="card-heading-row">
+              <div>
+                <div class="card-kicker" data-i18n="recent.kicker">PROJECT HISTORY</div>
+                <h2 data-i18n="recent.title">Recent rounds</h2>
+              </div>
+              <button class="text-button" id="overview-see-all" type="button" data-i18n="recent.seeAll">View all</button>
+            </div>
+            <div class="history-list" id="overview-history-list"></div>
+          </section>
+        </section>
+
+        <section class="view" id="research-view" hidden>
+          <div class="page-heading">
+            <div>
+              <div class="eyebrow" data-i18n="research.eyebrow">RESEARCH HANDOFF</div>
+              <h1 data-i18n="research.title">Give Web and Codex the same starting point.</h1>
+              <p class="lead" data-i18n="research.lede">Keep the ChatGPT conversation link with the selected workspace, then carry a precise brief into the next turn.</p>
+            </div>
+            <div class="heading-actions">
+              <button class="secondary-button" id="research-copy-brief-top" type="button" data-i18n="handoff.copyBrief">Copy research brief</button>
+              <a class="primary-button link-button" id="research-open-chat" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer" data-i18n="handoff.openChat">Open ChatGPT</a>
+            </div>
+          </div>
+
+          <div class="research-grid">
+            <article class="card handoff-editor-card">
+              <div class="card-kicker" data-i18n="research.conversationKicker">CONVERSATION LINK</div>
+              <h2 data-i18n="research.conversationTitle">Selected ChatGPT conversation</h2>
+              <p data-i18n="research.conversationCopy">Use a real <code>https://chatgpt.com/c/…</code> page. Bridge opens it in a separate tab and never embeds a fake chat surface.</p>
+              <label class="form-field" for="chatgpt-url">
+                <span data-i18n="research.urlLabel">ChatGPT conversation URL</span>
+                <input id="chatgpt-url" type="url" autocomplete="off" spellcheck="false" placeholder="https://chatgpt.com/c/..." data-i18n-placeholder="research.urlPlaceholder">
+              </label>
+              <div class="form-error" id="handoff-error" role="alert" hidden></div>
+              <div class="inline-actions">
+                <button class="primary-button" id="save-chatgpt-url" type="button" data-i18n="research.save">Save for this workspace</button>
+                <button class="secondary-button" id="clear-chatgpt-url" type="button" data-i18n="research.clear">Clear saved link</button>
+                <a class="secondary-button link-button" id="handoff-open-chat" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer" data-i18n="handoff.openChat">Open ChatGPT</a>
+              </div>
+              <p class="saved-note" id="saved-url-note" hidden></p>
+            </article>
+
+            <article class="card brief-card">
+              <div class="card-kicker" data-i18n="research.briefKicker">WEB → CODEX</div>
+              <h2 data-i18n="research.briefTitle">Copy a precise handoff</h2>
+              <p data-i18n="research.briefCopy">The brief names this workspace and the tools Web should use. It carries process context, not a made-up result.</p>
+              <div class="brief-preview" id="brief-preview"></div>
+              <button class="secondary-button wide" id="research-copy-brief" type="button" data-i18n="handoff.copyBrief">Copy research brief</button>
+            </article>
+          </div>
+
+          <article class="card workflow-card">
+            <div class="card-kicker" data-i18n="research.workflowKicker">A REPEATABLE ROUND</div>
+            <h2 data-i18n="research.workflowTitle">Keep the research loop small enough to inspect.</h2>
+            <div class="workflow-grid">
+              <div class="workflow-step"><span>01</span><h3 data-i18n="research.step1Title">Web frames the question</h3><p data-i18n="research.step1Copy">Question, hypothesis, baseline, data split, seeds, metrics and protocol.</p></div>
+              <div class="workflow-step"><span>02</span><h3 data-i18n="research.step2Title">Codex runs the round</h3><p data-i18n="research.step2Copy">Native execution stays bounded and returns scripts, metrics, logs and declared files.</p></div>
+              <div class="workflow-step"><span>03</span><h3 data-i18n="research.step3Title">Web reviews the evidence</h3><p data-i18n="research.step3Copy">Read the real artifacts, record a review and decide what the next contract should test.</p></div>
+            </div>
+          </article>
+
+          <article class="card web-setup-card">
+            <div class="card-kicker" data-i18n="research.setupKicker">WEB SETUP</div>
+            <h2 data-i18n="research.setupTitle">Keep the handoff in the same browser loop.</h2>
+            <ol>
+              <li data-i18n="research.setupStep1">Open ChatGPT in a separate tab and start or select the conversation for this project.</li>
+              <li data-i18n="research.setupStep2">Copy the conversation URL from the browser, paste it above and save it here.</li>
+              <li data-i18n="research.setupStep3">Copy the brief into your Web turn. Use the returned run ID and artifact hashes when you write the next review.</li>
+            </ol>
+            <div class="web-setup-links">
+              <a href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer" data-i18n="handoff.openChat">Open ChatGPT</a>
+              <a href="https://help.openai.com/" target="_blank" rel="noopener noreferrer" data-i18n="research.help">OpenAI help</a>
+              <a href="https://developers.openai.com/codex" target="_blank" rel="noopener noreferrer" data-i18n="research.codexHelp">Codex documentation</a>
+            </div>
+          </article>
+        </section>
+
+        <section class="view" id="experiments-view" hidden>
+          <div class="page-heading">
+            <div>
+              <div class="eyebrow" data-i18n="experiments.eyebrow">EXPERIMENTS</div>
+              <h1 data-i18n="experiments.title">Make the next round explicit.</h1>
+              <p class="lead" data-i18n="experiments.lede">Describe the work, start it when ready, then inspect the exact run and artifacts returned by Codex.</p>
+            </div>
+            <div class="heading-actions">
+              <button class="secondary-button" id="reset-experiment" type="button" data-i18n="experiments.reset">Clear form</button>
+            </div>
+          </div>
+
+          <div class="experiments-layout">
+            <article class="card experiment-editor-card">
+              <form id="experiment-form" novalidate>
+                <div class="form-section-heading">
+                  <div>
+                    <div class="card-kicker" data-i18n="experiments.contractKicker">RUN CONTRACT</div>
+                    <h2 data-i18n="experiments.contractTitle">What should Codex do?</h2>
+                  </div>
+                  <span class="request-chip"><span data-i18n="experiments.request">REQUEST</span> <code id="request-id-preview">new ID on start</code></span>
+                </div>
+
+                <div class="form-grid two-columns">
+                  <label class="form-field" for="experiment-domain">
+                    <span data-i18n="experiments.domain">Domain</span>
+                    <select id="experiment-domain">
+                      <option value="research" data-i18n="experiments.research">Research</option>
+                      <option value="engineering" data-i18n="experiments.engineering">Engineering</option>
+                    </select>
+                  </label>
+                  <label class="form-field" for="experiment-parent">
+                    <span data-i18n="experiments.parent">Parent run ID <em data-i18n="common.optional">optional</em></span>
+                    <input id="experiment-parent" type="text" autocomplete="off" spellcheck="false" placeholder="For an iteration">
+                  </label>
+                </div>
+
+                <label class="form-field" for="experiment-objective">
+                  <span data-i18n="experiments.objective">Objective</span>
+                  <textarea id="experiment-objective" rows="2" required placeholder="What should this round establish?" data-i18n-placeholder="experiments.objectivePlaceholder"></textarea>
+                </label>
+
+                <div class="form-grid two-columns">
+                  <label class="form-field" for="experiment-plan">
+                    <span data-i18n="experiments.plan">Plan <em data-i18n="common.onePerLine">one step per line</em></span>
+                    <textarea id="experiment-plan" rows="5" required placeholder="Prepare the baseline\nRun the evaluation\nWrite metrics.json" data-i18n-placeholder="experiments.planPlaceholder"></textarea>
+                  </label>
+                  <label class="form-field" for="experiment-acceptance">
+                    <span data-i18n="experiments.acceptance">Acceptance criteria <em data-i18n="common.onePerLine">one line per criterion</em></span>
+                    <textarea id="experiment-acceptance" rows="5" required placeholder="Metrics file exists\nResults include all seeds" data-i18n-placeholder="experiments.acceptancePlaceholder"></textarea>
+                  </label>
+                </div>
+
+                <div class="research-fields" id="research-fields">
+                  <div class="form-section-heading compact-heading">
+                    <div>
+                      <div class="card-kicker" data-i18n="experiments.researchKicker">RESEARCH CONTEXT</div>
+                      <h2 data-i18n="experiments.researchTitle">Make the hypothesis testable.</h2>
+                    </div>
+                  </div>
+                  <div class="form-grid two-columns">
+                    <label class="form-field" for="research-question"><span data-i18n="researchFields.question">Question</span><textarea id="research-question" rows="2" required></textarea></label>
+                    <label class="form-field" for="research-hypothesis"><span data-i18n="researchFields.hypothesis">Hypothesis</span><textarea id="research-hypothesis" rows="2" required></textarea></label>
+                    <label class="form-field" for="research-baselines"><span data-i18n="researchFields.baselines">Baselines <em data-i18n="common.onePerLine">one per line</em></span><textarea id="research-baselines" rows="3" required></textarea></label>
+                    <label class="form-field" for="research-dataset"><span data-i18n="researchFields.dataset">Dataset</span><input id="research-dataset" type="text" required></label>
+                    <label class="form-field" for="research-split"><span data-i18n="researchFields.split">Data split</span><input id="research-split" type="text" required></label>
+                    <label class="form-field" for="research-seeds"><span data-i18n="researchFields.seeds">Seeds <em data-i18n="common.onePerLine">one per line</em></span><input id="research-seeds" type="text" required placeholder="17, 29, 43"></label>
+                    <label class="form-field" for="research-metrics"><span data-i18n="researchFields.metrics">Metrics <em data-i18n="common.onePerLine">one per line</em></span><textarea id="research-metrics" rows="3" required></textarea></label>
+                    <label class="form-field" for="research-protocol"><span data-i18n="researchFields.protocol">Protocol</span><textarea id="research-protocol" rows="3" required></textarea></label>
+                    <label class="form-field" for="research-sources"><span data-i18n="researchFields.sources">Sources <em data-i18n="common.optional">optional</em></span><textarea id="research-sources" rows="2"></textarea></label>
+                    <label class="form-field" for="research-citations"><span data-i18n="researchFields.citations">Citations <em data-i18n="common.optional">optional</em></span><textarea id="research-citations" rows="2"></textarea></label>
+                  </div>
+                </div>
+
+                <label class="form-field" for="experiment-outputs">
+                  <span data-i18n="experiments.outputs">Expected artifacts <em data-i18n="common.onePerLine">one relative path per line</em></span>
+                  <textarea id="experiment-outputs" rows="3" required placeholder="experiment.mjs\nmetrics.json\nrun.log" data-i18n-placeholder="experiments.outputsPlaceholder"></textarea>
+                </label>
+                <label class="form-field" for="experiment-inputs">
+                  <span data-i18n="experiments.inputs">Input files <em data-i18n="common.optional">optional, one relative path per line</em></span>
+                  <textarea id="experiment-inputs" rows="2" placeholder="data/fixture.json" data-i18n-placeholder="experiments.inputsPlaceholder"></textarea>
+                </label>
+
+                <div class="form-error" id="experiment-form-error" role="alert" hidden></div>
+                <div class="form-footer">
+                  <p class="form-footnote" data-i18n="experiments.footnote">Starting a round creates a durable run. Retrying the same unchanged form reuses its request ID.</p>
+                  <button class="primary-button" id="start-experiment" type="submit" data-i18n="experiments.start">Start experiment</button>
+                </div>
+              </form>
+            </article>
+
+            <aside class="run-column">
+              <div class="card history-card">
+                <div class="card-heading-row">
+                  <div>
+                    <div class="card-kicker" data-i18n="history.kicker">PROJECT HISTORY</div>
+                    <h2 data-i18n="history.title">Rounds</h2>
+                  </div>
+                  <button class="icon-button small" id="history-refresh" type="button" data-i18n-aria="actions.refresh" aria-label="Refresh history">↻</button>
+                </div>
+                <div class="history-list" id="history-list"></div>
+                <button class="text-button load-more" id="history-load-more" type="button" data-i18n="history.loadMore" hidden>Load more</button>
+              </div>
+              <div class="card run-detail-card" id="run-detail" aria-live="polite">
+                <div class="run-empty">
+                  <div class="empty-icon" aria-hidden="true">⌁</div>
+                  <h2 data-i18n="run.emptyTitle">Select a round</h2>
+                  <p data-i18n="run.emptyCopy">Its contract, state, artifacts and review will appear here.</p>
+                </div>
+              </div>
+            </aside>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+</body>
+</html>

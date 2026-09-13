@@ -21,7 +21,7 @@ for (const file of packed.files) {
   const value = readFileSync(join(root, file.path), "utf8");
   if (value.includes(`${homedir()}/`) || secret.test(value)) errors.push(`Potential private material: ${file.path}`);
 }
-for (const required of [".codex-plugin/plugin.json", ".mcp.json", "bin/bridge.mjs", "bin/plugin-launcher.mjs", "bin/connection.mjs", "bin/web-companion.mjs", "config/web-companion.lock.json", "dist/src/mcp-stdio.js", "LICENSE", "THIRD_PARTY_NOTICES.md", "docs/installation.md"]) {
+for (const required of [".codex-plugin/plugin.json", ".mcp.json", "bin/bridge.mjs", "bin/plugin-launcher.mjs", "bin/studio-mcp.mjs", "bin/studio-process.mjs", "bin/studio-server.mjs", "assets/studio/index.html", "assets/studio/app.js", "assets/studio/style.css", "bin/connection.mjs", "bin/web-companion.mjs", "config/web-companion.lock.json", "dist/src/mcp-stdio.js", "LICENSE", "THIRD_PARTY_NOTICES.md", "docs/installation.md"]) {
   if (!packed.files.some(file => file.path === required)) errors.push(`Missing release file: ${required}`);
 }
 if (errors.length) throw new Error(errors.join("\n"));

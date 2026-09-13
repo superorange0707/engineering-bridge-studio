@@ -8,7 +8,7 @@ Engineering Bridge Studio gives ChatGPT Web a local native Codex workspace for p
 
 The unified beta currently supports macOS. Install Node.js 22+, Git and the Codex CLI, then sign in to Codex through its supported login flow. Web planning and the Web companion also require access to the ChatGPT account and workspace you intend to use.
 
-## 1. Install the beta
+## 1. Install and open Studio
 
 Run the release installer:
 
@@ -16,22 +16,47 @@ Run the release installer:
 curl -fsSL https://raw.githubusercontent.com/superorange0707/engineering-bridge-studio/main/install.mjs | node --input-type=module -
 ```
 
-The installer downloads the fixed `2.0.0-beta.1` release, verifies its SHA-256, registers the `engineering-bridge-studio` custom marketplace and installs the `engineering-bridge` plugin. The release is kept at:
+The installer downloads the release, verifies it, installs the plugin and opens Studio's setup screen. In Codex, ask **“Open Engineering Bridge Studio”**, or use the opening prompt on its plugin card, to show Studio in the current task's browser panel. Restart Codex once if the newly installed plugin is not visible.
 
-```text
-~/.local/share/engineering-bridge-studio/releases/engineering-bridge-studio-2.0.0-beta.1/plugins/engineering-bridge
+You can also install directly through Codex's marketplace commands:
+
+```sh
+codex plugin marketplace add superorange0707/engineering-bridge-studio --ref marketplace
+codex plugin add engineering-bridge@engineering-bridge-studio
 ```
 
-Choose your project next, then complete ChatGPT sign-in through the Launcher below.
+This repository's `marketplace` branch contains the ready-to-run plugin, including its runtime dependencies. After installation, open the plugin and choose **Open Engineering Bridge Studio**. The public directory listing is a separate step.
 
-After choosing a project, restart Codex and open **Plugins → Installed**. Look for **Engineering Bridge Studio**, or select the **engineering-bridge-studio** marketplace source. Start a new task to use its tools.
+## 2. Finish setup on screen
 
-## 2. Choose a project
+1. Choose **New setup**, enter your project directory, and enable **Run isolated experiments** if you want Codex to execute plans for this project. Choose **Connect existing** to reuse a Bridge configuration and its history.
+2. Select the project in Studio. **Research** keeps its ChatGPT conversation link and prepares a project brief. **Experiments** shows plans, progress, results and reviews.
+3. Open ChatGPT from the Research view and sign in. Use its project brief to begin the discussion. Configure a Bridge connector using the Web setup below when you want ChatGPT to call the project tools directly.
+
+Project setup works before any Bridge tools are configured. After finishing, ask Codex to refresh Bridge setup; the plugin activates the project tools in that session. Only the selected project's experiment history is loaded.
+
+## 3. Use the workspace
+
+- **Research:** save the conversation URL, copy a brief, and open ChatGPT in a browser tab.
+- **New experiment:** enter the objective, steps, expected files and acceptance criteria. Research experiments also include the hypothesis, baselines, data split, seeds, metrics and protocol.
+- **Runs:** follow progress, inspect the recorded output, download verified artifacts, or stop an active run.
+- **Review:** accept, request a revision or reject a completed run with feedback. Copy the result handoff back into the research conversation.
+
+ChatGPT and Studio are separate browser tabs. Once connected through Bridge, ChatGPT can submit plans and read the same results directly. The copy actions provide a manual handoff as well. Studio does not present an installed companion or saved conversation URL as a verified Web connection.
+
+<details>
+<summary>Command-line project setup</summary>
+
+The release installer keeps the plugin at:
+
+```text
+~/.local/share/engineering-bridge-studio/releases/engineering-bridge-studio-2.0.0-beta.2/plugins/engineering-bridge
+```
 
 Set the installed plugin path for the commands below:
 
 ```sh
-export BRIDGE_PLUGIN="$HOME/.local/share/engineering-bridge-studio/releases/engineering-bridge-studio-2.0.0-beta.1/plugins/engineering-bridge"
+export BRIDGE_PLUGIN="$HOME/.local/share/engineering-bridge-studio/releases/engineering-bridge-studio-2.0.0-beta.2/plugins/engineering-bridge"
 ```
 
 For a new local Bridge stack, name the project explicitly. Add `--experiments` when this project should run isolated engineering or research collaboration runs:
@@ -53,9 +78,13 @@ node "$BRIDGE_PLUGIN/bin/bridge.mjs" connect \
 
 Start a new Codex task after connecting. Multiple Codex clients and the Web MCP connection share one local Bridge service for the same configuration, while each MCP connection keeps its own session.
 
-## 3. Connect ChatGPT Web through the Launcher
+To open Studio from the command line, run `node "$BRIDGE_PLUGIN/bin/bridge.mjs" open`. Add `--json` to obtain its URL without opening a browser.
 
-Install and open the pinned Web companion from the installed plugin:
+</details>
+
+## Web setup: use ChatGPT Web models inside Codex
+
+In Studio, choose **Install Web companion**, then **Open Launcher**. You can also use these commands:
 
 ```sh
 node "$BRIDGE_PLUGIN/bin/bridge.mjs" web install
@@ -94,7 +123,7 @@ tunnel-client run --profile engineering-bridge-studio
 
 Provide `CONTROL_PLANE_API_KEY` through the private runtime environment. Keep the profile process running while ChatGPT discovers the connector, then select the same tunnel in [ChatGPT app settings](https://chatgpt.com/#settings/Connectors). Scan its tools, call `bridge_capabilities`, and run one small collaboration round. Use one tunnel-client instance per tunnel ID. See the [official tunnel-client setup](https://github.com/openai/tunnel-client#install-with-homebrew) for managed runtime operation.
 
-## 4. Verify both entrances
+## Verify both entrances
 
 Local checks:
 
@@ -129,9 +158,9 @@ Download the release archive and `SHA256SUMS` from [GitHub Releases](https://git
 ```sh
 shasum -a 256 -c SHA256SUMS
 mkdir -p "$HOME/.local/share/engineering-bridge-studio/releases"
-tar -xzf engineering-bridge-studio-2.0.0-beta.1.tar.gz \
+tar -xzf engineering-bridge-studio-2.0.0-beta.2.tar.gz \
   -C "$HOME/.local/share/engineering-bridge-studio/releases"
-cd "$HOME/.local/share/engineering-bridge-studio/releases/engineering-bridge-studio-2.0.0-beta.1"
+cd "$HOME/.local/share/engineering-bridge-studio/releases/engineering-bridge-studio-2.0.0-beta.2"
 codex plugin marketplace add "$PWD"
 codex plugin add engineering-bridge@engineering-bridge-studio
 ```

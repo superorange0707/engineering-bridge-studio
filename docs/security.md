@@ -65,3 +65,8 @@ The proposal-generation prompt constrains expected Git diff or filesystem-operat
 Bridge provides no independent Web account authentication or public HTTP service, general resource quotas, automatic scientific acceptance, or replay of active tasks after restart. The original `run_task` supervision history remains process-local and has no automatic deadline; collaboration runs instead have durable manifests, declared artifacts and a deadline. Do not expose STDIO through an untrusted wrapper. Do not place credentials or sensitive material in prompts, configuration, or public reports.
 
 See [SECURITY.md](../SECURITY.md) for the operator-facing security policy and [threat-model.md](threat-model.md) for the compact threat summary.
+
+
+## Local Studio
+
+Studio listens on `127.0.0.1` with a random session token carried in the opening URL fragment. The page removes the fragment after loading and sends the token in an authorization header. API requests require the exact local host; mutations also require the matching origin. Only the Studio route allowlist can reach Bridge tools. Read-only sessions have separate Studio instances and cannot start runs or change setup. Conversation links are scoped to a configured workspace and stored locally; saving a link does not read the conversation.

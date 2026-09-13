@@ -1,3 +1,19 @@
+# Engineering Bridge Studio 2.0.0-beta.2
+
+The plugin now opens a visual workspace inside Codex, with first-use setup and a complete experiment workflow.
+
+- Open Studio from the plugin even before a project is configured.
+- Choose a project, connect ChatGPT research, and prepare the next experiment in English or Chinese.
+- Run a structured plan with native Codex, inspect verified artifacts, and record a review.
+- Keep each project’s ChatGPT conversation link across Studio restarts.
+- Install the ready-to-run package through the repository’s Codex marketplace.
+
+A real Studio acceptance run created and executed a Node script, returned three verified artifacts, and produced the expected result. See docs/validation.md for scope and checks.
+
+ChatGPT opens in a separate browser tab beside Studio. The Web companion and account connection are guided setup steps.
+
+---
+
 # Engineering Bridge Studio 2.0.0-beta.1
 
 First independent macOS distribution combining the Bridge collaboration workflow with a pinned codex-chatgpt-web v5.0.6 Launcher installer.

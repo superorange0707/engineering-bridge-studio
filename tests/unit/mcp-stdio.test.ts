@@ -19,6 +19,35 @@ interface ToolResult {
   content: Array<{ type?: string; text?: string } | undefined>;
 }
 
+const BOOTSTRAP_TOOL_NAMES = ["bridge_studio", "bridge_setup_status"] as const;
+const EXISTING_TOOL_NAMES = [
+  "collaboration_run",
+  "collaboration_result",
+  "collaboration_history",
+  "collaboration_artifact",
+  "collaboration_review",
+  "collaboration_interrupt",
+  "run_task",
+  "task_result",
+  "control_task",
+  "bind_project",
+  "workspace_diagnostics",
+  "refresh_workspace_registry",
+  "create_project",
+  "authorize_workspace_write",
+  "generate_controlled_patch",
+  "prepare_project_instructions",
+  "refine_controlled_patch",
+  "apply_controlled_patch",
+  "bridge_capabilities"
+] as const;
+
+function assertStudioToolSurface(tools: Array<{ name: string }>): void {
+  const expected = [...BOOTSTRAP_TOOL_NAMES, ...EXISTING_TOOL_NAMES];
+  assert.equal(tools.length, BOOTSTRAP_TOOL_NAMES.length + EXISTING_TOOL_NAMES.length);
+  assert.deepEqual(new Set(tools.map(({ name }) => name)), new Set(expected));
+}
+
 function newConfigPath(prefix: string): string {
   const stack = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
   const config = join(stack, "config");
@@ -131,7 +160,7 @@ test("the macOS private-plugin launcher exposes the Bridge MCP tools", {
 
   try {
     await client.connect(transport);
-    assert.equal((await client.listTools()).tools.length, 19);
+    assertStudioToolSurface((await client.listTools()).tools);
   } finally {
     await client.close();
   }

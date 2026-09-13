@@ -1,9 +1,21 @@
 ---
 name: engineering-bridge
-description: Use Engineering Bridge to coordinate ChatGPT planning with local Codex engineering or research execution, durable experiment evidence, workspace diagnostics, and controlled source-project patches.
+description: Open Engineering Bridge Studio inside Codex, guide first-use setup, and coordinate ChatGPT Web research with native Codex experiments, files and results.
 ---
 
 # Engineering Bridge
+
+## Open Studio
+
+When the user installs, opens or sets up this plugin, or asks for its workspace/UI, call `bridge_studio` first. It works before any project is configured. Open the returned URL, including its fragment, in the current task's right-hand browser panel using `open_in_codex` when available. Otherwise give the user a clickable URL. Do not ask them to run shell setup commands when the Studio setup screen can handle the step.
+
+Studio lets the user choose a project, enable isolated experiments for it, connect an existing Bridge stack, and install or open the ChatGPT Web companion. Once the user finishes setup, call `bridge_setup_status` to activate the project tools in this session. If the host needs a fresh task to discover new tools, tell the user that only after this refresh is attempted.
+
+Open ChatGPT Web as a sibling browser tab when the user asks for the research view. It has its own login. Do not embed ChatGPT in an iframe or imply that opening its page shares conversation content. The Research view provides a project brief and result handoff; with the Bridge connector configured, the Web conversation can call the same collaboration tools directly.
+
+For a request to execute a concrete plan, use the collaboration tools below. Do not start an experiment merely because Studio was opened. Keep installation explanations short and use the visible setup steps and buttons.
+
+## Work on a project
 
 Use the Bridge MCP tools only for local projects the user places in scope.
 

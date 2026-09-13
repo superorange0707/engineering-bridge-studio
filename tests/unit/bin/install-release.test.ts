@@ -33,6 +33,7 @@ async function fixtureArchive(parent: string): Promise<string> {
   await mkdir(join(releaseRoot, ".agents", "plugins"), { recursive: true });
   await mkdir(join(pluginRoot, ".codex-plugin"), { recursive: true });
   await mkdir(join(pluginRoot, "bin"), { recursive: true });
+  await mkdir(join(pluginRoot, "assets", "studio"), { recursive: true });
   await mkdir(join(pluginRoot, "dist", "src"), { recursive: true });
   await mkdir(join(pluginRoot, "node_modules", "zod"), { recursive: true });
   await mkdir(join(pluginRoot, "node_modules", "@modelcontextprotocol", "sdk"), { recursive: true });
@@ -49,6 +50,12 @@ async function fixtureArchive(parent: string): Promise<string> {
   }));
   await writeFile(join(pluginRoot, ".mcp.json"), JSON.stringify({ mcpServers: {} }));
   await writeFile(join(pluginRoot, "bin", "plugin-launcher.mjs"), "#!/usr/bin/env node\n");
+  for (const name of ["studio-mcp.mjs", "studio-process.mjs", "studio-server.mjs"]) {
+    await writeFile(join(pluginRoot, "bin", name), "export {};\n");
+  }
+  for (const name of ["index.html", "app.js", "style.css"]) {
+    await writeFile(join(pluginRoot, "assets", "studio", name), "fixture\n");
+  }
   await writeFile(join(pluginRoot, "dist", "src", "mcp-stdio.js"), "export {};\n");
   await writeFile(join(pluginRoot, "node_modules", "zod", "package.json"), "{}\n");
   await writeFile(join(pluginRoot, "node_modules", "@modelcontextprotocol", "sdk", "package.json"), "{}\n");

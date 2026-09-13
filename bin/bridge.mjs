@@ -10,6 +10,8 @@ import { absolutePath, connectConfig, defaultStack, privateDirectory, readPrivat
 const root = fileURLToPath(new URL("../", import.meta.url));
 const help = `Engineering Bridge Studio — one planning and execution workspace
 
+  open [--config /absolute/config] [--json]
+      Open the Studio workspace and first-use setup. No project configuration is needed.
   init --project /absolute/project [--project /another] [--experiments] [--home /new/stack]
       Create a private configuration for the named projects. Source writes stay disabled.
       --experiments enables isolated execution only for the explicitly named projects.
@@ -148,7 +150,11 @@ export async function main(args = process.argv.slice(2)) {
   }
   const options = parse(rest);
   let result;
-  if (command === "init") {
+  if (command === "open") {
+    const { ensureStudio } = await import("./studio-process.mjs");
+    result = await ensureStudio({ ...(options.config ? { configPath: options.config } : {}) });
+    if (!options.json) await run("open", [result.url]);
+  } else if (command === "init") {
     result = await initialize(options);
     result = { ...result, ...await connectConfig(result.config_path, options["connection-file"]) };
   } else if (command === "connect") {

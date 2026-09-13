@@ -8,15 +8,30 @@
 
 目前支持 macOS。先安装 Node.js 22+、Git 和 Codex CLI，并登录 Codex。
 
+通过 Codex 安装：
+
+```sh
+codex plugin marketplace add superorange0707/engineering-bridge-studio --ref marketplace
+codex plugin add engineering-bridge@engineering-bridge-studio
+```
+
+安装后在新任务中打开插件，选择 **Open Engineering Bridge Studio**，即可在 Codex 的浏览器面板中进入工作台并完成项目 setup。
+
+也可以使用会自动打开浏览器的安装脚本：
+
 ```sh
 curl -fsSL https://raw.githubusercontent.com/superorange0707/engineering-bridge-studio/main/install.mjs | node --input-type=module -
 ```
 
-安装器会下载发行包、校验 SHA-256，并装入 Codex。重启应用后，打开 **Plugins → Installed**，找到 **Engineering Bridge Studio**。项目选择和 ChatGPT Web 连接步骤见[安装指南](docs/installation.md)。
+安装器会装好插件并打开 **Studio 工作台**，按页面提示选择项目、完成 setup。在 Codex 中说 **“打开 Engineering Bridge Studio”**，工作台就会在当前任务的浏览器面板打开，也可以点击插件卡片上的启动提示。新安装的插件如果没有出现在列表里，重启一次 Codex。
 
 目前通过这个安装器和 [GitHub Releases](https://github.com/superorange0707/engineering-bridge-studio/releases) 分发，公共 Codex 目录收录需要单独提交审核。
 
 ## 如何配合
+
+工作台提供项目 setup、研究交接、实验编辑、运行状态、文件下载和结果审阅，支持英文和中文。首次打开进入 setup；已有安装继续使用原来的项目和实验记录。
+
+在 **研究** 页面关联 ChatGPT 对话、准备项目 brief，在 **实验** 页面把具体计划交给原生 Codex，再查看结果。ChatGPT 在独立浏览器标签中打开。配置好 Bridge connector 后，Web 可以直接下发计划和读取结果；也可以使用页面上的复制操作手动交接。
 
 Engineering Bridge Studio 把 ChatGPT Web 的规划能力和本地原生 Codex 的执行能力连接到同一个项目中。
 

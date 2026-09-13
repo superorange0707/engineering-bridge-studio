@@ -1,6 +1,15 @@
 # MCP tool reference
 
-This is the tool surface of the local automatic-routing overlay. The development STDIO MCP server exposes nineteen tools: thirteen original tools and six collaboration tools.
+The Codex plugin provides two workspace entry tools and, after setup, nineteen project tools. The underlying Bridge STDIO server continues to expose the nineteen project tools directly for Web connections.
+
+## Studio and setup
+
+| Tool | Purpose |
+| --- | --- |
+| `bridge_studio` | Start or reuse the local Studio workspace and return its URL. Available before project setup. Open it in the current task's browser panel; it does not start an experiment. |
+| `bridge_setup_status` | Check project setup and refresh the delegated project tools in the current session. Returns setup errors without making the workspace entry unavailable. |
+
+Studio uses the same project tools below. Its browser API is a bounded adapter, not a second execution engine or a separate experiment store.
 
 ## Engineering and research collaboration
 
