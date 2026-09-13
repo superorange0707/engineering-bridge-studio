@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "engineering-bridge": {
+      "command": "node",
+      "args": [
+        "./bin/plugin-launcher.mjs"
+      ],
+      "cwd": ".",
+      "env_vars": [
+        "ENGINEERING_BRIDGE_CONFIG",
+        "CODEX_HOME",
+        "ENGINEERING_BRIDGE_EXECUTOR_CHILD",
+        "CODEX_ROUTED_TASK_READ_ONLY"
+      ]
+    }
+  }
+}

@@ -1,0 +1,153 @@
+# Engineering Bridge Studio 2.0.0-beta.2
+
+The plugin now opens a visual workspace inside Codex, with first-use setup and a complete experiment workflow.
+
+- Open Studio from the plugin even before a project is configured.
+- Choose a project, connect ChatGPT research, and prepare the next experiment in English or Chinese.
+- Run a structured plan with native Codex, inspect verified artifacts, and record a review.
+- Keep each project’s ChatGPT conversation link across Studio restarts.
+- Install the ready-to-run package through the repository’s Codex marketplace.
+
+A real Studio acceptance run created and executed a Node script, returned three verified artifacts, and produced the expected result. See docs/validation.md for scope and checks.
+
+ChatGPT opens in a separate browser tab beside Studio. The Web companion and account connection are guided setup steps.
+
+---
+
+# Engineering Bridge Studio 2.0.0-beta.1
+
+First independent macOS distribution combining the Bridge collaboration workflow with a pinned codex-chatgpt-web v5.0.6 Launcher installer.
+
+- Shared local owner and independent client sessions for Codex and authenticated Web MCP entry points.
+- Engineering/research contracts, isolated native Codex execution, declared artifact hashes, paged artifact reads and durable reviews.
+- Explicit per-project initialization, existing-stack connection, local diagnostics and child delegation prevention.
+- Fixed version/digest companion installation, upstream attribution and self-contained plugin release packaging.
+- Separate local readiness and actual Web execution acceptance, with documented authentication and rollback steps.
+
+Based on Engineering Bridge v1.2.1. Later upstream v1.4.4 features are not implied; see docs/upstreams.md. This is a beta distribution, not a certification of every ChatGPT account, browser mode or platform.
+
+---
+
+## Original upstream release history
+
+# Release notes
+
+## v1.2.1
+
+v1.2.1 is a Windows launch-compatibility patch for both executors. The DSH executor itself was added in v1.2.0; v1.2.1 does not add an executor, it fixes how npm-installed Codex and DSH CLIs are resolved and launched on Windows.
+
+### Windows CLI compatibility
+
+- Fix Windows command resolution for npm-installed Codex and DSH CLIs.
+- Standard Windows npm installs expose:
+
+  ```
+  codex.cmd
+  dsh.cmd
+  ```
+
+- Bridge now resolves those npm shims to their official Node entrypoints:
+
+  ```
+  @openai/codex/bin/codex.js
+  @deepseek-ai/dsh/lib/bin.js
+  ```
+
+- The launch path uses `process.execPath` + the JS entrypoint.
+- A real `codex.exe` / `dsh.exe` remains directly supported and preferred.
+
+### Safety
+
+- No `cmd.exe` / `ComSpec` runtime path.
+- No `shell: true`.
+- The Codex instruction still travels through JSON-RPC stdin.
+- The DSH instruction remains a single argv argument.
+- Unresolved shim targets fail closed through the existing shell-free fallback chain.
+
+### Verification
+
+Validated on a real GitHub Actions `windows-latest` runner with Node 22 and actual npm-installed `@openai/codex` and `@deepseek-ai/dsh` packages.
+
+Windows smoke confirmed:
+
+- real `codex.cmd` and `dsh.cmd` layouts
+- resolver discovery
+- both official Node launchers start successfully
+- focused executor tests pass
+
+Windows compatibility improved and this specific npm CLI path is now verified; full multi-client / all-Windows-environment certification is not claimed.
+
+## v1.2.0
+
+v1.2.0 keeps the Codex behavior of v1.1.0 (including its default selection) and adds a second executor, managed workspace onboarding, restart persistence for controlled patches, and more honest task reporting.
+
+### Executors
+
+- `run_task` accepts an optional `executor: "codex" | "dsh"`; omitting it still defaults to `codex`, so existing calls are unchanged.
+- DSH runs through the official headless interface, pinned to read-only per process (`DSH_PERMISSION_MODE=read-only`); the bridge forwards only an explicit environment allowlist, including `DEEPSEEK_API_KEY` and `DSH_TOOLS_MODE`, and never forwards proxy variables.
+- DSH returns a legitimate empty output for a successful run with no agent text, and an interrupted DSH task keeps its real partial stdout as `partial_output`.
+
+### Workspace onboarding and write authorization
+
+- New `project_root` configuration entries define approved root directories.
+- `bind_project` registers an existing directory inside a `project_root` after exact `BIND` confirmation.
+- `create_project` creates and git-initializes a new directory inside a `project_root` after exact `CREATE` confirmation (the repository is left unborn; no commit is made).
+- Managed workspaces are registered read-only by default. `authorize_workspace_write` grants controlled-write permission to a managed workspace only, after exact `AUTHORIZE` confirmation.
+- Manual workspaces from `workspaces.json` remain authoritative for their own `allow_write`; `AUTHORIZE` never modifies a manual entry.
+
+### Controlled patches
+
+- `generate_controlled_patch` and `refine_controlled_patch` are read-only proposals and work in any registered workspace; no write authorization is needed to generate or refine.
+- Write authorization (managed `AUTHORIZE` or a manual `allow_write: true` entry) is required only at `apply_controlled_patch` with exact `APPLY`.
+- Controlled-patch proposals and applied history now survive a bridge restart; invalid retained records are quarantined safely instead of blocking startup.
+- Unborn repositories (for example, fresh `create_project` workspaces) are supported: proposals may add ordinary 100644 text files. The bridge still never stages, commits, or pushes.
+
+### Honest task reporting
+
+- `task_result` reports the fixed `executor` and, for Codex tasks, the real native app-server thread id. DSH has no machine-resumable headless session, so it never gets a fabricated thread id; a DSH `continue` starts a new execution.
+- `partial_output` appears only when a genuine interrupt produced real partial output; the task still ends `failed`, and ordinary failures never re-expose stderr or partial stdout.
+- Codex evidence truncation is now visible: oversized strings are marked `[truncated]`, oversized change lists report how many changes were omitted, and evidence evicted by the count limit is reported through a synthetic drop item. Bounds are unchanged; the markers only say the diagnostic information is incomplete.
+
+### Not changed
+
+- The Codex default path, controlled-`APPLY` validation, and safety checks from v1.1.0 are unchanged; the bridge still never automatically tests, stages, commits, pushes, or releases.
+
+## v1.1.0
+
+v1.1.0 adds `refine_controlled_patch` for refining an existing completed controlled-patch proposal into a new complete proposal against the same `base_head`, preserving the source proposal and still requiring explicit `APPLY` before workspace modification.
+
+## v1.0.0
+
+controlled APPLY now accepts valid Codex-generated patches with Markdown fence context, stale hunk counts, and zero-context hunks, while retaining existing workspace, target, and explicit APPLY safeguards.
+
+## v1.0.0-rc.2
+
+Failed Codex turns with `codexErrorInfo=serverOverloaded` are surfaced as a clear model-capacity failure instead of only the generic `CODEX_EXECUTION_FAILED` message. Raw upstream error details remain hidden.
+
+## 1.0.0 stable
+
+This stable V1 release exposes five STDIO MCP tools: `run_task`, `task_result`, `control_task`, `generate_controlled_patch`, and `apply_controlled_patch`. Ordinary `run_task` execution is always read-only. Successful interactive turns enter `waiting_for_supervisor_review`; `task_result` exposes state/readiness, bounded evidence, and `review_output` before acceptance, then final `output` or `error` after finalization. `control_task` is restricted to interactive `run_task` task IDs and state-checks `continue`, `steer`, `interrupt`, and `accept`. Continue preserves native Codex thread continuity; interrupt is available only while an interactive task is running and finalizes it as failed.
+
+Controlled patch generation remains on the legacy proposal-task path. Poll its returned patch task ID through `task_result` until `state=completed`, when the unified diff is returned as `output`. Proposal tasks do not enter `waiting_for_supervisor_review`, do not expose `review_output`, and cannot be accepted through `control_task`. Human review occurs outside task state; an acceptable completed diff is passed directly to `apply_controlled_patch` with that `patch_task_id` and exact `APPLY`.
+
+The Codex backend uses `codex app-server --stdio` without a shell, with approval `never` and network disabled. Ordinary/supervisor tasks and proposal generation stay read-only; exact reviewed `APPLY` is the filesystem write path. Bridge does not automatically test, stage, commit, or push. State is process-local with no restart recovery or automatic timeout; explicit interruption exists only for running interactive tasks. Alpha.4 project binding is not implemented, so `workspace_id` remains required.
+
+This is the stable V1 / 1.0.0 release. It does not indicate npm publication.
+
+## v0.2.0-alpha.3 release candidate
+
+This release candidate reduces the public STDIO MCP interface to four tools: `run_task`, `task_result`, `generate_controlled_patch`, and `apply_controlled_patch`. `task_result` is now the single polling tool and reports active tasks with `ready: false`, completed output, or a fixed safe error. Serialized errors contain exactly `code` and `message` while preserving the existing error codes and non-leakage behavior.
+
+Controlled patches may continue to modify existing tracked regular text files and may now add an ordinary text file when the diff uses exact `new file mode 100644` and matching `/dev/null` headers, contains a text hunk, and targets a safe path absent from base HEAD, the current index, and the worktree. Deletions and other unsafe patch forms remain rejected. Documentation has been reduced and aligned with this interface and behavior.
+
+This is a release candidate description only. It does not assert that a v0.2.0-alpha.3 tag, GitHub Release, or npm publication exists.
+
+## v0.2.0-alpha.2
+
+Engineering Bridge v0.2.0-alpha.2 adds opt-in controlled writes while keeping every workspace read-only by default. A write-enabled clean Git workspace can generate a patch proposal without changing files; application requires human review and confirmation exactly equal to `APPLY`. Bridge rechecks repository state and patch targets before applying, and never automatically tests, stages, commits, or pushes.
+
+This release also compares canonical real paths during controlled-write Git-root validation, so macOS aliases such as `/tmp` and `/private/tmp` no longer cause the same directory to be rejected. The English and Chinese READMEs explain client compatibility, component roles, a generic STDIO MCP configuration, a reproducible first read-only run, and the complete controlled-write flow. The architecture, security, threat-model, and tool-reference documents are aligned with the current implementation.
+
+Current limits remain: no cancellation or timeout, no persistence across restart, no caller authentication or remote service, and no OS-level read containment for ordinary read-only tasks. Every proposal still requires human review.
+
+This version has been published as a Git tag and GitHub Release.

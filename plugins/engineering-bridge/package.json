@@ -1,0 +1,80 @@
+{
+  "name": "engineering-bridge-studio",
+  "version": "2.0.0-beta.2",
+  "description": "ChatGPT Web planning and writing with isolated native Codex execution, shared Bridge state, and reproducible research evidence.",
+  "type": "module",
+  "files": [
+    ".codex-plugin/**",
+    ".mcp.json",
+    "bin/*.mjs",
+    "assets/studio/**",
+    "dist/src/**",
+    "config/workspaces.example.json",
+    "config/web-companion.lock.json",
+    "docs/architecture.md",
+    "docs/security.md",
+    "docs/threat-model.md",
+    "docs/tools.md",
+    "docs/installation.md",
+    "docs/research-workflow.md",
+    "docs/validation.md",
+    "docs/upstreams.md",
+    "docs/chatgpt-codex-workflow.md",
+    "docs/codex-chatgpt-web-comparison.md",
+    "examples/**",
+    "README.md",
+    "README.en.md",
+    "README.zh-CN.md",
+    "RELEASE_NOTES.md",
+    "SECURITY.md",
+    "skills/**",
+    "CONTRIBUTING.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "config/release-marketplace.json"
+  ],
+  "bin": {
+    "engineering-bridge": "dist/src/mcp-stdio.js",
+    "engineering-bridge-studio": "bin/bridge.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc",
+    "test": "npm run build && node --test \"dist/tests/unit/**/*.test.js\"",
+    "mcp:stdio": "node dist/src/mcp-stdio.js",
+    "check:web": "node bin/check-web-bridge.mjs",
+    "smoke:collaboration": "node bin/collaboration-smoke.mjs --live",
+    "prepack": "npm run build",
+    "studio": "node bin/bridge.mjs",
+    "release:check": "node bin/release-check.mjs",
+    "release:build": "npm run build && node bin/build-release.mjs"
+  },
+  "keywords": [
+    "mcp",
+    "codex",
+    "chatgpt",
+    "research",
+    "experiments",
+    "local-first"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "22.20.1",
+    "typescript": "5.8.3"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^3.25.76"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/superorange0707/engineering-bridge-studio.git"
+  },
+  "homepage": "https://github.com/superorange0707/engineering-bridge-studio#readme",
+  "bugs": {
+    "url": "https://github.com/superorange0707/engineering-bridge-studio/issues"
+  }
+}

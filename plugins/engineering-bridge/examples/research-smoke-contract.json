@@ -1,0 +1,30 @@
+{
+  "domain": "research",
+  "objective": "Verify the Web-to-Codex research execution workflow with a tiny reproducible synthetic regression experiment. This is an infrastructure smoke test, not a publishable research finding or a novelty claim.",
+  "plan": [
+    "Use only Node.js standard library. Write experiment.mjs. Generate independent train and test observations with a deterministic seeded PRNG for seeds 17, 29 and 43. Generate x uniformly on [-1,1], noise uniformly on [-0.1,0.1], and y=2*x+1+noise.",
+    "For each seed use 64 training examples and 32 separate test examples. Fit ordinary least squares with intercept on training data only. Compare against the training-mean predictor. metrics.json must be valid JSON with node_version, command, and results: an array ordered by seed, each row containing seed, train_size, test_size and test_mse (an object with two numeric entries for the two methods).",
+    "Execute node experiment.mjs and capture its real stdout/stderr and exit code in run.log. Make metrics.json deterministic across repeated runs in the same Node environment. Run the script twice and assert identical metrics bytes. Do not install packages or use network access.",
+    "Report failures honestly. Do not fabricate command output or measurements. Read the input idea.md only as background. Do not modify the source project. Keep all output within the current run directory."
+  ],
+  "acceptance_criteria": [
+    "experiment.mjs executes successfully with Node standard library only.",
+    "metrics.json includes all three seeds, both baselines, actual held-out test MSE, sample sizes and environment information.",
+    "Rerunning experiment.mjs yields byte-identical metrics.json in the same environment.",
+    "No training or model fitting reads test targets; run.log records actual execution and exit status.",
+    "The result is explicitly labeled a synthetic infrastructure smoke test."
+  ],
+  "expected_artifacts": ["experiment.mjs", "metrics.json", "run.log"],
+  "research": {
+    "question": "Can the bridge execute and return a reproducible predeclared experiment with verifiable artifacts?",
+    "hypothesis": "On this deliberately linear synthetic dataset, fitted OLS should have lower test MSE than a training-mean baseline; the workflow must retain actual outcomes either way.",
+    "baselines": ["Training-mean constant predictor", "Ordinary least squares with intercept"],
+    "dataset": "Locally generated synthetic y=2*x+1+uniform noise; no personal, employer or clinical data.",
+    "split": "64 training examples and 32 separately generated test examples per seed; fit using training observations only.",
+    "seeds": [17, 29, 43],
+    "metrics": ["Held-out test mean squared error for each method and seed"],
+    "protocol": "Generate data and evaluate every declared seed. Preserve all outcomes and failures. Record Node version and command. Re-run the same script and compare metrics bytes. This validates infrastructure only.",
+    "sources": [],
+    "citations": []
+  }
+}

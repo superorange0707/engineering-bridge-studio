@@ -1,0 +1,20 @@
+{
+  "name": "engineering-bridge-studio",
+  "interface": {
+    "displayName": "Engineering Bridge Studio"
+  },
+  "plugins": [
+    {
+      "name": "engineering-bridge",
+      "source": {
+        "source": "local",
+        "path": "./plugins/engineering-bridge"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

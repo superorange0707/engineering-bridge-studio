@@ -1,0 +1,41 @@
+{
+  "name": "engineering-bridge",
+  "version": "2.0.0-beta.2",
+  "description": "ChatGPT Web planning, native Codex execution, and durable research evidence through one shared Bridge.",
+  "author": {
+    "name": "Dechun Wang and contributors",
+    "url": "https://github.com/superorange0707"
+  },
+  "homepage": "https://github.com/superorange0707/engineering-bridge-studio#readme",
+  "repository": "https://github.com/superorange0707/engineering-bridge-studio",
+  "license": "MIT",
+  "keywords": [
+    "engineering",
+    "mcp",
+    "codex",
+    "local-first"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Engineering Bridge Studio",
+    "shortDescription": "Your research and experiment workspace inside Codex.",
+    "longDescription": "Open Studio to choose a project, connect ChatGPT Web, send plans to native Codex, and review experiments, files and results in one workspace. First-use setup is included.",
+    "developerName": "Dechun Wang and contributors",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Visual workspace and guided setup",
+      "Shared local MCP",
+      "Engineering and research contracts",
+      "Isolated experiments",
+      "Artifact review"
+    ],
+    "websiteURL": "https://github.com/superorange0707/engineering-bridge-studio",
+    "defaultPrompt": [
+      "Open Engineering Bridge Studio and help me finish setup.",
+      "Turn my idea into a research contract and reproducible experiment.",
+      "Continue a Bridge project from its latest evidence and review.",
+      "Check my Web and Codex collaboration setup."
+    ]
+  }
+}
